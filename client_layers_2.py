@@ -1,13 +1,16 @@
 import pika
+import uuid
+import pickle
+
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import pickle
 
-address = "192.168.101.234"
 layer_id = 2
 client_id = 2
-
+address = "192.168.101.234"
+username = "dai"
+password = "dai"
 
 if torch.cuda.is_available():
     device = "cuda"
@@ -80,7 +83,6 @@ class ModelPart2(nn.Module):
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.fc = nn.Linear(512 * ResBlock.expansion, num_classes)
 
-
     def forward(self, x):
         x = self.layer1(x)
         x = self.layer2(x)
@@ -94,7 +96,6 @@ class ModelPart2(nn.Module):
         x = x.reshape(x.shape[0], -1)
         x = self.fc(x)
         return x
-
 
     def _make_layer(self, ResBlock, planes, stride=1):
         ii_downsample = None
@@ -112,6 +113,53 @@ class ModelPart2(nn.Module):
         return nn.Sequential(*layers)
 
 
+class RpcClient:
+    def __init__(self):
+        credentials = pika.PlainCredentials(username, password)
+        self.connection = pika.BlockingConnection(pika.ConnectionParameters(address, 5672, '/', credentials))
+        self.channel = self.connection.channel()
+
+        result = self.channel.queue_declare(queue='', exclusive=True)
+        self.callback_queue = result.method.queue
+
+        self.channel.basic_consume(queue=self.callback_queue,
+                                   on_message_callback=self.on_response,
+                                   auto_ack=True)
+
+        self.response = None
+        self.corr_id = None
+
+    def on_response(self, ch, method, props, body):
+        self.response = pickle.loads(body)
+        print(f"Client received: {self.response}")
+        action = self.response["action"]
+        parameters = self.response["parameters"]
+
+        if action == "START":
+            # TODO: read parameters and load to model
+            train_on_device()
+        elif action == "STOP":
+            stop_connection()
+            # TODO: send parameters to server
+
+    def register(self, message):
+        self.response = None
+        self.corr_id = str(uuid.uuid4())
+
+        # Send message to server
+        self.channel.basic_publish(exchange='',
+                                   routing_key='rpc_queue',
+                                   properties=pika.BasicProperties(
+                                       reply_to=self.callback_queue,
+                                       correlation_id=self.corr_id),
+                                   body=pickle.dumps(message))
+
+        # Wait response from server
+        while self.response is None:
+            self.connection.process_data_events()
+
+
+client = RpcClient()
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model_part2 = ModelPart2().to(device)
 optimizer2 = optim.SGD(model_part2.parameters(), lr=0.01)
@@ -125,19 +173,21 @@ def send_gradient(gradient, trace):
     channel = connection.channel()
     to_client_id = trace[-1]
     trace.pop(-1)
-    backward_queue_name = f'gradient_queue_{layer_id-1}_{to_client_id}'
-    channel.queue_declare(queue='gradient_queue', durable=False)
+    backward_queue_name = f'gradient_queue_{layer_id - 1}_{to_client_id}'
+    channel.queue_declare(queue=backward_queue_name, durable=False)
 
-    message = pickle.dumps({"data": gradient.detach().cpu().numpy(), "trace":trace})
+    message = pickle.dumps({"data": gradient.detach().cpu().numpy(), "trace": trace})
 
     channel.basic_publish(
         exchange='',
-        routing_key='gradient_queue',
+        routing_key=backward_queue_name,
         body=message
     )
     print(" [x] Sent gradient")
 
-    # connection.close()
+
+def stop_connection():
+    connection.close()
 
 
 def on_message_callback(ch, method, properties, body):
@@ -159,14 +209,14 @@ def on_message_callback(ch, method, properties, body):
     optimizer2.step()
 
     gradient = intermediate_output.grad
-    send_gradient(gradient, trace)     # 1F1B
+    send_gradient(gradient, trace)  # 1F1B
 
     ch.basic_ack(delivery_tag=method.delivery_tag)
 
 
 def train_on_device():
     channel = connection.channel()
-    forward_queue_name = f'intermediate_queue_{layer_id-1}'
+    forward_queue_name = f'intermediate_queue_{layer_id - 1}'
     channel.queue_declare(queue=forward_queue_name, durable=False)
     channel.basic_qos(prefetch_count=1)
     channel.basic_consume(queue=forward_queue_name,
@@ -178,4 +228,6 @@ def train_on_device():
 
 
 if __name__ == "__main__":
-    train_on_device()
+    print("Client sending registration message to server...")
+    data = {"action": "REGISTER", "client_id": client_id, "layer_id": layer_id, "message": "Hello from Client!"}
+    client.register(data)

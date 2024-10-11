@@ -19,11 +19,15 @@ Và có rabbitMQ server để kết nối tới
 ## Cách chạy
 
 ```commandline
-python layers_1.py
+python client_layers_1.py
 ```
 
 ```commandline
-python layers_2.py
+python client_layers_2.py
+```
+
+```commandline
+python server.py
 ```
 
 Quá trình đang phát triển sản phẩm ...
