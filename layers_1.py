@@ -5,10 +5,13 @@ import torch.optim as optim
 import pickle
 import torchvision
 import torchvision.transforms as transforms
+import time
 from tqdm import tqdm
 
 batch_size = 256
-address = "0.0.0.0"
+address = "192.168.101.234"
+layer_id = 1
+client_id = 1
 
 
 if torch.cuda.is_available():
@@ -85,19 +88,21 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model_part1 = ModelPart1().to(device)
 optimizer1 = optim.SGD(model_part1.parameters(), lr=0.01)
 
-credentials = pika.PlainCredentials('guest', 'guest')
+credentials = pika.PlainCredentials('dai', 'dai')
 connection = pika.BlockingConnection(pika.ConnectionParameters(address, 5672, '/', credentials))
 
 
 def send_intermediate_output(output, labels):
     channel = connection.channel()
-    channel.queue_declare(queue='intermediate_queue', durable=False)
+    forward_queue_name = f'intermediate_queue_{layer_id}'
+    channel.queue_declare(forward_queue_name, durable=False)
 
-    message = pickle.dumps({"data": output.detach().cpu().numpy(), "label": labels})
+    message = pickle.dumps({"data": output.detach().cpu().numpy(), "label": labels, "trace":[client_id]})
+    # TODO: change trace to append
 
     channel.basic_publish(
         exchange='',
-        routing_key='intermediate_queue',
+        routing_key=forward_queue_name,
         body=message
     )
     # print(" [x] Sent intermediate output")
@@ -105,41 +110,46 @@ def send_intermediate_output(output, labels):
     # connection.close()
 
 
-def receive_gradient():
+def train_on_device(trainloader):
+    data_iter = iter(trainloader)
     channel = connection.channel()
-    channel.queue_declare(queue='gradient_queue', durable=False)
-
-    gradient = None
-    while True:
-        method_frame, header_frame, body = channel.basic_get(queue='gradient_queue', auto_ack=True)
-        if body:
-            gradient_numpy = pickle.loads(body)
-            gradient = torch.tensor(gradient_numpy).to(device)
-            # print(" [x] Received gradient")
-            break
-
-    # connection.close()
-    return gradient
-
-
-def train_on_device_1(trainloader):
-    for (data, labels) in tqdm(trainloader, 0):
-        model_part1.train()
-        optimizer1.zero_grad()
-        intermediate_output = model_part1(data.to(device))
-        intermediate_output = intermediate_output.detach().requires_grad_(True)
-        send_intermediate_output(intermediate_output, labels)
-        gradient = receive_gradient()
-        if gradient is not None:
-            try:
-                intermediate_output.backward(gradient)
-                optimizer1.step()
-                # print(f" [x] Updated Model Part 1")
-            except:
-                # print("Something else went wrong")
-                pass
-        else:
-            print(" [x] No gradient received")
+    backward_queue_name = f'gradient_queue_{layer_id}_{client_id}'
+    channel.queue_declare(queue=backward_queue_name, durable=False)
+    count = 0
+    with tqdm(total=len(trainloader), desc="Processing", unit="step") as pbar:
+        while True:
+            # training model
+            model_part1.train()
+            optimizer1.zero_grad()
+            # Process gradient
+            method_frame, header_frame, body = channel.basic_get(queue=backward_queue_name, auto_ack=True)
+            if method_frame:
+                gradient = None
+                if body:
+                    received_data = pickle.loads(body)
+                    gradient_numpy = received_data["data"]
+                    gradient = torch.tensor(gradient_numpy).to(device)
+                    # print(" [x] Received gradient")
+                if gradient is not None:
+                    # Process backward message
+                    try:
+                        intermediate_output.backward(gradient)
+                        optimizer1.step()
+                        # print(" [x] Updated Model Part 1")
+                    except:
+                        # print("Something else went wrong")
+                        pass
+            else:
+                # tqdm bar
+                pbar.update(1)
+                # Process forward message
+                data, labels = next(data_iter)
+                intermediate_output = model_part1(data.to(device))
+                intermediate_output = intermediate_output.detach().requires_grad_(True)
+                # Send to next layers
+                send_intermediate_output(intermediate_output, labels)
+                # TODO: speed control
+                time.sleep(0.2)
 
 
 if __name__ == "__main__":
@@ -167,4 +177,4 @@ if __name__ == "__main__":
 
     for epoch in range(5):
         print(f"Epoch {epoch + 1}")
-        train_on_device_1(train_loader)
+        train_on_device(train_loader)

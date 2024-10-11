@@ -4,7 +4,9 @@ import torch.nn as nn
 import torch.optim as optim
 import pickle
 
-address = "0.0.0.0"
+address = "192.168.101.234"
+layer_id = 2
+client_id = 2
 
 
 if torch.cuda.is_available():
@@ -78,6 +80,7 @@ class ModelPart2(nn.Module):
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.fc = nn.Linear(512 * ResBlock.expansion, num_classes)
 
+
     def forward(self, x):
         x = self.layer1(x)
         x = self.layer2(x)
@@ -114,16 +117,18 @@ model_part2 = ModelPart2().to(device)
 optimizer2 = optim.SGD(model_part2.parameters(), lr=0.01)
 criterion = nn.CrossEntropyLoss()
 
-credentials = pika.PlainCredentials('guest', 'guest')
+credentials = pika.PlainCredentials('dai', 'dai')
 connection = pika.BlockingConnection(pika.ConnectionParameters(address, 5672, '/', credentials))
 
 
-def send_gradient(gradient):
+def send_gradient(gradient, trace):
     channel = connection.channel()
-
+    to_client_id = trace[-1]
+    trace.pop(-1)
+    backward_queue_name = f'gradient_queue_{layer_id-1}_{to_client_id}'
     channel.queue_declare(queue='gradient_queue', durable=False)
 
-    message = pickle.dumps(gradient.detach().cpu().numpy())
+    message = pickle.dumps({"data": gradient.detach().cpu().numpy(), "trace":trace})
 
     channel.basic_publish(
         exchange='',
@@ -139,6 +144,8 @@ def on_message_callback(ch, method, properties, body):
     print(" [x] Received intermediate output")
     received_data = pickle.loads(body)
     intermediate_output_numpy = received_data["data"]
+    trace = received_data["trace"]
+
     labels = received_data["label"].to(device)
     intermediate_output = torch.tensor(intermediate_output_numpy, requires_grad=True).to(device)
 
@@ -152,16 +159,17 @@ def on_message_callback(ch, method, properties, body):
     optimizer2.step()
 
     gradient = intermediate_output.grad
-    send_gradient(gradient)
+    send_gradient(gradient, trace)     # 1F1B
 
     ch.basic_ack(delivery_tag=method.delivery_tag)
 
 
-def train_on_device_2():
+def train_on_device():
     channel = connection.channel()
-    channel.queue_declare(queue='intermediate_queue', durable=False)
+    forward_queue_name = f'intermediate_queue_{layer_id-1}'
+    channel.queue_declare(queue=forward_queue_name, durable=False)
     channel.basic_qos(prefetch_count=1)
-    channel.basic_consume(queue='intermediate_queue',
+    channel.basic_consume(queue=forward_queue_name,
                           on_message_callback=on_message_callback)
 
     print(' [*] Waiting for intermediate output. To exit press CTRL+C')
@@ -170,4 +178,4 @@ def train_on_device_2():
 
 
 if __name__ == "__main__":
-    train_on_device_2()
+    train_on_device()
