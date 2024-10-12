@@ -1,10 +1,20 @@
+import os
 import pika
 import pickle
+import argparse
+
+import torch
 import requests
 from requests.auth import HTTPBasicAuth
 
-total_clients = [1, 1]
-file_path = "./test.pt"
+parser = argparse.ArgumentParser(description="Split learning framework with controller.")
+
+parser.add_argument('--topo', type=int, nargs='+', required=True, help='List of client topo, example: --topo 2 3')
+
+args = parser.parse_args()
+
+total_clients = args.topo
+filename = "resnet_model"
 address = "192.168.101.234"
 username = "dai"
 password = "dai"
@@ -24,20 +34,21 @@ class Server:
         self.first_layer_clients = 0
         self.responses = {}  # Save response
 
+        self.all_model_parameters = [[] for _ in range(len(total_clients))]
+
         self.channel.basic_qos(prefetch_count=1)
         self.channel.basic_consume(queue='rpc_queue', on_message_callback=self.on_request)
         print(f"Server is waiting for {self.total_clients} clients.")
 
     def on_request(self, ch, method, props, body):
         message = pickle.loads(body)
-        print(message)
         routing_key = props.reply_to
         action = message["action"]
         client_id = message["client_id"]
         layer_id = message["layer_id"]
-        print(f"Received message from client: {message}")
 
         if action == "REGISTER":
+            print(f"Received message from client: {message}")
             # Save messages from clients
             self.responses[routing_key] = message
             self.current_clients[layer_id - 1] += 1
@@ -47,7 +58,8 @@ class Server:
                 print("All clients are connected. Sending notifications.")
                 self.notify_clients(ch)
                 self.current_clients = [0 for _ in range(len(total_clients))]
-        if action == "NOTIFY":
+        elif action == "NOTIFY":
+            print(f"Received message from client: {message}")
             if layer_id == 1:
                 self.first_layer_clients += 1
 
@@ -56,6 +68,19 @@ class Server:
                 self.stop_training_round(ch)
                 for _ in range(sum(self.total_clients[1:])):
                     self.send_to_broadcast()
+        elif action == "UPDATE":
+            # Save client's model parameters
+            model_state_dict = message["parameters"]
+            self.current_clients[layer_id - 1] += 1
+            self.all_model_parameters[layer_id - 1].append(model_state_dict)
+
+            # If consumed all client's parameters
+            if self.current_clients == self.total_clients:
+                print("Collected all parameters.")
+                self.avg_all_parameters()
+                self.current_clients = [0 for _ in range(len(total_clients))]
+                self.all_model_parameters = [[] for _ in range(len(total_clients))]
+                # TODO: Start a new training round
 
         # Ack the message
         ch.basic_ack(delivery_tag=method.delivery_tag)
@@ -63,17 +88,19 @@ class Server:
     def notify_clients(self, channel):
         # Send message to clients when consumed all clients
         for routing_key in self.responses:
+            layer = self.responses[routing_key]["layer_id"]
+            # Read parameters file
+            filepath = f'{filename}_{layer}.pth'
+            state_dict = None
+            if os.path.exists(filepath):
+                state_dict = torch.load(filepath, weights_only=False)
+                print("Model loaded successfully.")
+            else:
+                print(f"File {filepath} does not exist.")
+
             response = {"action": "START",
                         "message": "Server accepted are connection!",
-                        "parameters": None}
-            # Read parameters file
-            try:
-                with open(file_path, 'r') as file:
-                    content = file.read()
-                    response["parameters"] = content
-                    # TODO: Send with corresponding layers
-            except FileNotFoundError:
-                print(f"File {file_path} does not exist.")
+                        "parameters": state_dict}
 
             channel.basic_publish(exchange='',
                                   routing_key=routing_key,
@@ -110,6 +137,31 @@ class Server:
             routing_key=broadcast_queue_name,
             body=message
         )
+
+    def avg_all_parameters(self):
+        # Average all client parameters
+        for layer, state_dicts in enumerate(self.all_model_parameters):
+            avg_state_dict = {}
+            num_models = len(state_dicts)
+
+            for key in state_dicts[0].keys():
+                if state_dicts[0][key].dtype == torch.long:
+                    avg_state_dict[key] = state_dicts[0][key].float()
+                else:
+                    avg_state_dict[key] = state_dicts[0][key].clone()
+
+                for i in range(1, num_models):
+                    if state_dicts[i][key].dtype == torch.long:
+                        avg_state_dict[key] += state_dicts[i][key].float()
+                    else:
+                        avg_state_dict[key] += state_dicts[i][key]
+
+                avg_state_dict[key] /= num_models
+
+                if state_dicts[0][key].dtype == torch.long:
+                    avg_state_dict[key] = avg_state_dict[key].long()
+            # Save to files
+            torch.save(avg_state_dict, f'{filename}_{layer + 1}.pth')
 
 
 def delete_old_queues():

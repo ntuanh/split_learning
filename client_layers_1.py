@@ -2,6 +2,7 @@ import pika
 import uuid
 import pickle
 import time
+import argparse
 from tqdm import tqdm
 
 import torch
@@ -10,12 +11,20 @@ import torch.optim as optim
 import torchvision
 import torchvision.transforms as transforms
 
+parser = argparse.ArgumentParser(description="Split learning framework")
+parser.add_argument('--id', type=int, required=True, help='ID of client')
+
+args = parser.parse_args()
+assert args.id is not None, "Must provide id for client."
+
 batch_size = 256
 layer_id = 1
-client_id = 1
+client_id = args.id
 address = "192.168.101.234"
 username = "dai"
 password = "dai"
+
+device = None
 
 if torch.cuda.is_available():
     device = "cuda"
@@ -23,6 +32,29 @@ if torch.cuda.is_available():
 else:
     device = "cpu"
     print(f"Using device: CPU")
+
+# Read and load dataset
+transform_train = transforms.Compose([
+    transforms.RandomCrop(32, padding=4),
+    transforms.RandomHorizontalFlip(),
+    transforms.ToTensor(),
+    transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+])
+
+transform_test = transforms.Compose([
+    transforms.ToTensor(),
+    transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+])
+
+trainset = torchvision.datasets.CIFAR10(
+    root='./data', train=True, download=True, transform=transform_train)
+train_loader = torch.utils.data.DataLoader(
+    trainset, batch_size=batch_size, shuffle=True)
+
+testset = torchvision.datasets.CIFAR10(
+    root='./data', train=False, download=True, transform=transform_test)
+test_loader = torch.utils.data.DataLoader(
+    testset, batch_size=batch_size, shuffle=False)
 
 
 class Bottleneck(nn.Module):
@@ -87,13 +119,17 @@ class ModelPart1(nn.Module):
         return x
 
 
+model_part1 = ModelPart1().to(device)
+optimizer1 = optim.SGD(model_part1.parameters(), lr=0.01)
+
+
 class RpcClient:
     def __init__(self):
         credentials = pika.PlainCredentials(username, password)
         self.connection = pika.BlockingConnection(pika.ConnectionParameters(address, 5672, '/', credentials))
         self.channel = self.connection.channel()
 
-        result = self.channel.queue_declare(queue='')
+        result = self.channel.queue_declare(queue='', exclusive=True)
         self.callback_queue = result.method.queue
 
         self.channel.basic_consume(queue=self.callback_queue,
@@ -105,38 +141,20 @@ class RpcClient:
 
     def on_response(self, ch, method, props, body):
         self.response = pickle.loads(body)
-        print(f"Client received: {self.response}")
+        print(f"Client received: {self.response['message']}")
         action = self.response["action"]
         parameters = self.response["parameters"]
 
         if action == "START":
-            # TODO: read parameters and load to model
-            transform_train = transforms.Compose([
-                transforms.RandomCrop(32, padding=4),
-                transforms.RandomHorizontalFlip(),
-                transforms.ToTensor(),
-                transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
-            ])
-
-            transform_test = transforms.Compose([
-                transforms.ToTensor(),
-                transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
-            ])
-
-            trainset = torchvision.datasets.CIFAR10(
-                root='./data', train=True, download=True, transform=transform_train)
-            train_loader = torch.utils.data.DataLoader(
-                trainset, batch_size=batch_size, shuffle=True)
-
-            testset = torchvision.datasets.CIFAR10(
-                root='./data', train=False, download=True, transform=transform_test)
-            test_loader = torch.utils.data.DataLoader(
-                testset, batch_size=batch_size, shuffle=False)
-
+            # Read parameters and load to model
+            model_part1.load_state_dict(parameters)
+            # Start training
             train_on_device(train_loader)
-        elif action == "STOP":
-            # TODO: send parameters to server
-            ...
+            # Stop training, then send parameters to server
+            model_state_dict = model_part1.state_dict()
+            data = {"action": "UPDATE", "client_id": client_id, "layer_id": layer_id,
+                    "message": "Send parameters to Server", "parameters": model_state_dict}
+            self.send_to_server(data, wait=False)
 
     def send_to_server(self, message, wait=True):
         self.response = None
@@ -156,11 +174,7 @@ class RpcClient:
 
 
 client = RpcClient()
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-model_part1 = ModelPart1().to(device)
-optimizer1 = optim.SGD(model_part1.parameters(), lr=0.01)
-
-credentials = pika.PlainCredentials('dai', 'dai')
+credentials = pika.PlainCredentials(username, password)
 connection = pika.BlockingConnection(pika.ConnectionParameters(address, 5672, '/', credentials))
 
 

@@ -1,16 +1,25 @@
 import pika
 import uuid
 import pickle
+import argparse
 
 import torch
 import torch.nn as nn
 import torch.optim as optim
 
+parser = argparse.ArgumentParser(description="Split learning framework")
+parser.add_argument('--id', type=int, required=True, help='ID of client')
+
+args = parser.parse_args()
+assert args.id is not None, "Must provide id for client."
+
 layer_id = 2
-client_id = 2
+client_id = args.id
 address = "192.168.101.234"
 username = "dai"
 password = "dai"
+
+device = None
 
 if torch.cuda.is_available():
     device = "cuda"
@@ -113,13 +122,18 @@ class ModelPart2(nn.Module):
         return nn.Sequential(*layers)
 
 
+model_part2 = ModelPart2().to(device)
+optimizer2 = optim.SGD(model_part2.parameters(), lr=0.01)
+criterion = nn.CrossEntropyLoss()
+
+
 class RpcClient:
     def __init__(self):
         credentials = pika.PlainCredentials(username, password)
         self.connection = pika.BlockingConnection(pika.ConnectionParameters(address, 5672, '/', credentials))
         self.channel = self.connection.channel()
 
-        result = self.channel.queue_declare(queue='')
+        result = self.channel.queue_declare(queue='', exclusive=True)
         self.callback_queue = result.method.queue
 
         self.channel.basic_consume(queue=self.callback_queue,
@@ -131,16 +145,19 @@ class RpcClient:
 
     def on_response(self, ch, method, props, body):
         self.response = pickle.loads(body)
-        print(f"Client received: {self.response}")
+        print(f"Client received: {self.response['message']}")
         action = self.response["action"]
         parameters = self.response["parameters"]
 
         if action == "START":
-            # TODO: read parameters and load to model
+            # Read parameters and load to model
+            model_part2.load_state_dict(parameters)
+            # Start training
             train_on_device()
-        elif action == "STOP":
-            # TODO: send parameters to server
-            ...
+            # Stop training, then send parameters to server
+            model_state_dict = model_part2.state_dict()
+            data = {"action": "UPDATE", "client_id": client_id, "layer_id": layer_id, "message": "Send parameters to Server", "parameters": model_state_dict}
+            self.send_to_server(data, wait=False)
 
     def send_to_server(self, message, wait=True):
         self.response = None
@@ -163,11 +180,6 @@ class RpcClient:
 
 
 client = RpcClient()
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-model_part2 = ModelPart2().to(device)
-optimizer2 = optim.SGD(model_part2.parameters(), lr=0.01)
-criterion = nn.CrossEntropyLoss()
-
 credentials = pika.PlainCredentials('dai', 'dai')
 connection = pika.BlockingConnection(pika.ConnectionParameters(address, 5672, '/', credentials))
 
@@ -197,7 +209,7 @@ def train_on_device():
     channel = connection.channel()
     forward_queue_name = f'intermediate_queue_{layer_id - 1}'
     channel.queue_declare(queue=forward_queue_name, durable=False)
-    print(' [*] Waiting for intermediate output. To exit press CTRL+C')
+    print('Waiting for intermediate output. To exit press CTRL+C')
     while True:
         # Training model
         model_part2.train()
