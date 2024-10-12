@@ -93,7 +93,7 @@ class RpcClient:
         self.connection = pika.BlockingConnection(pika.ConnectionParameters(address, 5672, '/', credentials))
         self.channel = self.connection.channel()
 
-        result = self.channel.queue_declare(queue='', exclusive=True)
+        result = self.channel.queue_declare(queue='')
         self.callback_queue = result.method.queue
 
         self.channel.basic_consume(queue=self.callback_queue,
@@ -138,7 +138,7 @@ class RpcClient:
             # TODO: send parameters to server
             ...
 
-    def send_to_server(self, message):
+    def send_to_server(self, message, wait=True):
         self.response = None
         self.corr_id = str(uuid.uuid4())
 
@@ -149,10 +149,10 @@ class RpcClient:
                                        reply_to=self.callback_queue,
                                        correlation_id=self.corr_id),
                                    body=pickle.dumps(message))
-
-        # Wait response from server
-        while self.response is None:
-            self.connection.process_data_events()
+        if wait:
+            # Wait response from server
+            while self.response is None:
+                self.connection.process_data_events()
 
 
 client = RpcClient()
@@ -193,7 +193,7 @@ def train_on_device(trainloader):
 
     with tqdm(total=len(trainloader), desc="Processing", unit="step") as pbar:
         while True:
-            # training model
+            # Training model
             model_part1.train()
             optimizer1.zero_grad()
             # Process gradient
@@ -218,7 +218,6 @@ def train_on_device(trainloader):
             else:
                 # Process forward message
                 try:
-
                     data, labels = next(data_iter)
                     intermediate_output = model_part1(data.to(device))
                     intermediate_output = intermediate_output.detach().requires_grad_(True)
@@ -230,14 +229,14 @@ def train_on_device(trainloader):
 
                     send_intermediate_output(intermediate_output, labels)
                     # TODO: speed control
-                    time.sleep(0.2)
+                    time.sleep(0.25)
                 except StopIteration:
                     end_data = True
             if end_data and (num_forward == num_backward):
                 # Finish epoch training, send notify to server
                 print("Finish training!")
                 data = {"action": "NOTIFY", "client_id": client_id, "layer_id": layer_id, "message": "Finish training!"}
-                client.send_to_server(data)
+                client.send_to_server(data, wait=False)
                 break
 
 

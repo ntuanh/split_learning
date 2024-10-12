@@ -119,7 +119,7 @@ class RpcClient:
         self.connection = pika.BlockingConnection(pika.ConnectionParameters(address, 5672, '/', credentials))
         self.channel = self.connection.channel()
 
-        result = self.channel.queue_declare(queue='', exclusive=True)
+        result = self.channel.queue_declare(queue='')
         self.callback_queue = result.method.queue
 
         self.channel.basic_consume(queue=self.callback_queue,
@@ -139,10 +139,10 @@ class RpcClient:
             # TODO: read parameters and load to model
             train_on_device()
         elif action == "STOP":
-            stop_connection()
             # TODO: send parameters to server
+            ...
 
-    def register(self, message):
+    def send_to_server(self, message, wait=True):
         self.response = None
         self.corr_id = str(uuid.uuid4())
 
@@ -153,10 +153,13 @@ class RpcClient:
                                        reply_to=self.callback_queue,
                                        correlation_id=self.corr_id),
                                    body=pickle.dumps(message))
+        if wait:
+            # Wait response from server
+            while self.response is None:
+                self.connection.process_data_events()
 
-        # Wait response from server
-        while self.response is None:
-            self.connection.process_data_events()
+    def check_process_data(self):
+        self.connection.process_data_events()
 
 
 client = RpcClient()
@@ -183,51 +186,54 @@ def send_gradient(gradient, trace):
         routing_key=backward_queue_name,
         body=message
     )
-    print(" [x] Sent gradient")
+    # print("Sent gradient")
 
 
 def stop_connection():
     connection.close()
 
 
-def on_message_callback(ch, method, properties, body):
-    print(" [x] Received intermediate output")
-    received_data = pickle.loads(body)
-    intermediate_output_numpy = received_data["data"]
-    trace = received_data["trace"]
-
-    labels = received_data["label"].to(device)
-    intermediate_output = torch.tensor(intermediate_output_numpy, requires_grad=True).to(device)
-
-    model_part2.train()
-    optimizer2.zero_grad()
-    output = model_part2(intermediate_output)
-    loss = criterion(output, labels)
-    print(f" [x] Loss: {loss.item()}")
-    intermediate_output.retain_grad()
-    loss.backward()
-    optimizer2.step()
-
-    gradient = intermediate_output.grad
-    send_gradient(gradient, trace)  # 1F1B
-
-    ch.basic_ack(delivery_tag=method.delivery_tag)
-
-
 def train_on_device():
     channel = connection.channel()
     forward_queue_name = f'intermediate_queue_{layer_id - 1}'
     channel.queue_declare(queue=forward_queue_name, durable=False)
-    channel.basic_qos(prefetch_count=1)
-    channel.basic_consume(queue=forward_queue_name,
-                          on_message_callback=on_message_callback)
-
     print(' [*] Waiting for intermediate output. To exit press CTRL+C')
+    while True:
+        # Training model
+        model_part2.train()
+        optimizer2.zero_grad()
+        # Process gradient
+        method_frame, header_frame, body = channel.basic_get(queue=forward_queue_name, auto_ack=True)
+        if method_frame:
+            if body:
+                # print("Received intermediate output")
+                received_data = pickle.loads(body)
+                intermediate_output_numpy = received_data["data"]
+                trace = received_data["trace"]
 
-    channel.start_consuming()
+                labels = received_data["label"].to(device)
+                intermediate_output = torch.tensor(intermediate_output_numpy, requires_grad=True).to(device)
+
+                output = model_part2(intermediate_output)
+                loss = criterion(output, labels)
+                print(f"Loss: {loss.item()}")
+                intermediate_output.retain_grad()
+                loss.backward()
+                optimizer2.step()
+
+                gradient = intermediate_output.grad
+                send_gradient(gradient, trace)  # 1F1B
+        # Check training process
+        else:
+            broadcast_queue_name = 'broadcast_queue'
+            method_frame, header_frame, body = channel.basic_get(queue=broadcast_queue_name, auto_ack=True)
+            if body:
+                received_data = pickle.loads(body)
+                print(f"Received message from server {received_data}")
+                break
 
 
 if __name__ == "__main__":
     print("Client sending registration message to server...")
     data = {"action": "REGISTER", "client_id": client_id, "layer_id": layer_id, "message": "Hello from Client!"}
-    client.register(data)
+    client.send_to_server(data)
