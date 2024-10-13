@@ -1,15 +1,11 @@
 import pika
 import uuid
 import pickle
-import time
 import argparse
-from tqdm import tqdm
 
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import torchvision
-import torchvision.transforms as transforms
 
 parser = argparse.ArgumentParser(description="Split learning framework")
 parser.add_argument('--id', type=int, required=True, help='ID of client')
@@ -17,8 +13,7 @@ parser.add_argument('--id', type=int, required=True, help='ID of client')
 args = parser.parse_args()
 assert args.id is not None, "Must provide id for client."
 
-batch_size = 256
-layer_id = 1
+layer_id = 3
 client_id = args.id
 address = "192.168.101.234"
 username = "dai"
@@ -32,29 +27,6 @@ if torch.cuda.is_available():
 else:
     device = "cpu"
     print(f"Using device: CPU")
-
-# Read and load dataset
-transform_train = transforms.Compose([
-    transforms.RandomCrop(32, padding=4),
-    transforms.RandomHorizontalFlip(),
-    transforms.ToTensor(),
-    transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
-])
-
-transform_test = transforms.Compose([
-    transforms.ToTensor(),
-    transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
-])
-
-trainset = torchvision.datasets.CIFAR10(
-    root='./data', train=True, download=True, transform=transform_train)
-train_loader = torch.utils.data.DataLoader(
-    trainset, batch_size=batch_size, shuffle=True)
-
-testset = torchvision.datasets.CIFAR10(
-    root='./data', train=False, download=True, transform=transform_test)
-test_loader = torch.utils.data.DataLoader(
-    testset, batch_size=batch_size, shuffle=False)
 
 
 class Bottleneck(nn.Module):
@@ -103,24 +75,48 @@ def identity_layers(ResBlock, blocks, planes):
     return nn.Sequential(*layers)
 
 
-class ModelPart1(nn.Module):
-    def __init__(self, num_channels=3):
-        super(ModelPart1, self).__init__()
-        self.conv1 = nn.Conv2d(num_channels, 64, kernel_size=7, stride=2, padding=3, bias=False)
-        self.batch_norm1 = nn.BatchNorm2d(64)
-        self.relu = nn.ReLU()
-        self.max_pool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+class ModelPart3(nn.Module):
+    def __init__(self, ResBlock=Bottleneck, layer_list=None, num_classes=10):
+        super(ModelPart3, self).__init__()
+        if layer_list is None:
+            layer_list = [3, 4, 6, 3]
+        self.in_channels = 1024
+
+        self.layer6 = identity_layers(ResBlock, layer_list[2], planes=256)
+        self.layer7 = self._make_layer(ResBlock, planes=512, stride=2)
+        self.layer8 = identity_layers(ResBlock, layer_list[3], planes=512)
+
+        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+        self.fc = nn.Linear(512 * ResBlock.expansion, num_classes)
 
     def forward(self, x):
-        x = self.conv1(x)
-        x = self.batch_norm1(x)
-        x = self.relu(x)
-        x = self.max_pool(x)
+        x = self.layer6(x)
+        x = self.layer7(x)
+        x = self.layer8(x)
+        x = self.avgpool(x)
+        x = x.reshape(x.shape[0], -1)
+        x = self.fc(x)
         return x
 
+    def _make_layer(self, ResBlock, planes, stride=1):
+        ii_downsample = None
+        layers = []
 
-model = ModelPart1().to(device)
+        if stride != 1 or self.in_channels != planes * ResBlock.expansion:
+            ii_downsample = nn.Sequential(
+                nn.Conv2d(self.in_channels, planes * ResBlock.expansion, kernel_size=1, stride=stride),
+                nn.BatchNorm2d(planes * ResBlock.expansion)
+            )
+
+        layers.append(ResBlock(self.in_channels, planes, i_downsample=ii_downsample, stride=stride))
+        self.in_channels = planes * ResBlock.expansion
+
+        return nn.Sequential(*layers)
+
+
+model = ModelPart3().to(device)
 optimizer = optim.SGD(model.parameters(), lr=0.01)
+criterion = nn.CrossEntropyLoss()
 
 
 class RpcClient:
@@ -150,11 +146,10 @@ class RpcClient:
             if parameters:
                 model.load_state_dict(parameters)
             # Start training
-            train_on_device(train_loader)
+            train_on_device()
             # Stop training, then send parameters to server
             model_state_dict = model.state_dict()
-            data = {"action": "UPDATE", "client_id": client_id, "layer_id": layer_id,
-                    "message": "Send parameters to Server", "parameters": model_state_dict}
+            data = {"action": "UPDATE", "client_id": client_id, "layer_id": layer_id, "message": "Send parameters to Server", "parameters": model_state_dict}
             self.send_to_server(data, wait=False)
 
     def send_to_server(self, message, wait=True):
@@ -173,73 +168,72 @@ class RpcClient:
             while self.response is None:
                 self.connection.process_data_events()
 
+    def check_process_data(self):
+        self.connection.process_data_events()
+
 
 client = RpcClient()
 credentials = pika.PlainCredentials(username, password)
 connection = pika.BlockingConnection(pika.ConnectionParameters(address, 5672, '/', credentials))
 
 
-def send_intermediate_output(output, labels):
+def send_gradient(gradient, trace):
     channel = connection.channel()
-    forward_queue_name = f'intermediate_queue_{layer_id}'
-    channel.queue_declare(forward_queue_name, durable=False)
+    to_client_id = trace[-1]
+    trace.pop(-1)
+    backward_queue_name = f'gradient_queue_{layer_id - 1}_{to_client_id}'
+    channel.queue_declare(queue=backward_queue_name, durable=False)
 
-    message = pickle.dumps({"data": output.detach().cpu().numpy(), "label": labels, "trace": [client_id]})
+    message = pickle.dumps({"data": gradient.detach().cpu().numpy(), "trace": trace})
 
     channel.basic_publish(
         exchange='',
-        routing_key=forward_queue_name,
+        routing_key=backward_queue_name,
         body=message
     )
+    # print("Sent gradient")
 
 
-def train_on_device(trainloader):
-    data_iter = iter(trainloader)
+def stop_connection():
+    connection.close()
+
+
+def train_on_device():
     channel = connection.channel()
-    backward_queue_name = f'gradient_queue_{layer_id}_{client_id}'
-    channel.queue_declare(queue=backward_queue_name, durable=False)
-    num_forward = 0
-    num_backward = 0
-    end_data = False
+    forward_queue_name = f'intermediate_queue_{layer_id - 1}'
+    channel.queue_declare(queue=forward_queue_name, durable=False)
+    print('Waiting for intermediate output. To exit press CTRL+C')
+    while True:
+        # Training model
+        model.train()
+        optimizer.zero_grad()
+        # Process gradient
+        method_frame, header_frame, body = channel.basic_get(queue=forward_queue_name, auto_ack=True)
+        if method_frame and body:
+            # print("Received intermediate output")
+            received_data = pickle.loads(body)
+            intermediate_output_numpy = received_data["data"]
+            trace = received_data["trace"]
 
-    with tqdm(total=len(trainloader), desc="Processing", unit="step") as pbar:
-        while True:
-            # Training model
-            model.train()
-            optimizer.zero_grad()
-            # Process gradient
-            method_frame, header_frame, body = channel.basic_get(queue=backward_queue_name, auto_ack=True)
-            if method_frame and body:
-                num_backward += 1
+            labels = received_data["label"].to(device)
+            intermediate_output = torch.tensor(intermediate_output_numpy, requires_grad=True).to(device)
+
+            output = model(intermediate_output)
+            loss = criterion(output, labels)
+            print(f"Loss: {loss.item()}")
+            intermediate_output.retain_grad()
+            loss.backward()
+            optimizer.step()
+
+            gradient = intermediate_output.grad
+            send_gradient(gradient, trace)  # 1F1B
+        # Check training process
+        else:
+            broadcast_queue_name = 'broadcast_queue'
+            method_frame, header_frame, body = channel.basic_get(queue=broadcast_queue_name, auto_ack=True)
+            if body:
                 received_data = pickle.loads(body)
-                gradient_numpy = received_data["data"]
-                gradient = torch.tensor(gradient_numpy).to(device)
-                # print(" [x] Received gradient")
-                intermediate_output.backward(gradient)
-                optimizer.step()
-                # print(" [x] Updated Model Part 1")
-            else:
-                # Process forward message
-                try:
-                    data, labels = next(data_iter)
-                    intermediate_output = model(data.to(device))
-                    intermediate_output = intermediate_output.detach().requires_grad_(True)
-
-                    # Send to next layers
-                    num_forward += 1
-                    # tqdm bar
-                    pbar.update(1)
-
-                    send_intermediate_output(intermediate_output, labels)
-                    # TODO: speed control
-                    time.sleep(0.25)
-                except StopIteration:
-                    end_data = True
-            if end_data and (num_forward == num_backward):
-                # Finish epoch training, send notify to server
-                print("Finish training!")
-                data = {"action": "NOTIFY", "client_id": client_id, "layer_id": layer_id, "message": "Finish training!"}
-                client.send_to_server(data, wait=False)
+                print(f"Received message from server {received_data}")
                 break
 
 

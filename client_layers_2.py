@@ -76,8 +76,10 @@ def identity_layers(ResBlock, blocks, planes):
 
 
 class ModelPart2(nn.Module):
-    def __init__(self, ResBlock=Bottleneck, layer_list=[3, 4, 6, 3], num_classes=10):
+    def __init__(self, ResBlock=Bottleneck, layer_list=None, num_classes=10):
         super(ModelPart2, self).__init__()
+        if layer_list is None:
+            layer_list = [3, 4, 6, 3]
         self.in_channels = 64
 
         self.layer1 = self._make_layer(ResBlock, planes=64)
@@ -85,12 +87,6 @@ class ModelPart2(nn.Module):
         self.layer3 = self._make_layer(ResBlock, planes=128, stride=2)
         self.layer4 = identity_layers(ResBlock, layer_list[1], planes=128)
         self.layer5 = self._make_layer(ResBlock, planes=256, stride=2)
-        self.layer6 = identity_layers(ResBlock, layer_list[2], planes=256)
-        self.layer7 = self._make_layer(ResBlock, planes=512, stride=2)
-        self.layer8 = identity_layers(ResBlock, layer_list[3], planes=512)
-
-        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
-        self.fc = nn.Linear(512 * ResBlock.expansion, num_classes)
 
     def forward(self, x):
         x = self.layer1(x)
@@ -98,12 +94,6 @@ class ModelPart2(nn.Module):
         x = self.layer3(x)
         x = self.layer4(x)
         x = self.layer5(x)
-        x = self.layer6(x)
-        x = self.layer7(x)
-        x = self.layer8(x)
-        x = self.avgpool(x)
-        x = x.reshape(x.shape[0], -1)
-        x = self.fc(x)
         return x
 
     def _make_layer(self, ResBlock, planes, stride=1):
@@ -122,8 +112,8 @@ class ModelPart2(nn.Module):
         return nn.Sequential(*layers)
 
 
-model_part2 = ModelPart2().to(device)
-optimizer2 = optim.SGD(model_part2.parameters(), lr=0.01)
+model = ModelPart2().to(device)
+optimizer = optim.SGD(model.parameters(), lr=0.01)
 criterion = nn.CrossEntropyLoss()
 
 
@@ -151,11 +141,12 @@ class RpcClient:
 
         if action == "START":
             # Read parameters and load to model
-            model_part2.load_state_dict(parameters)
+            if parameters:
+                model.load_state_dict(parameters)
             # Start training
             train_on_device()
             # Stop training, then send parameters to server
-            model_state_dict = model_part2.state_dict()
+            model_state_dict = model.state_dict()
             data = {"action": "UPDATE", "client_id": client_id, "layer_id": layer_id, "message": "Send parameters to Server", "parameters": model_state_dict}
             self.send_to_server(data, wait=False)
 
@@ -180,8 +171,23 @@ class RpcClient:
 
 
 client = RpcClient()
-credentials = pika.PlainCredentials('dai', 'dai')
+credentials = pika.PlainCredentials(username, password)
 connection = pika.BlockingConnection(pika.ConnectionParameters(address, 5672, '/', credentials))
+
+
+def send_intermediate_output(output, labels, trace):
+    channel = connection.channel()
+    forward_queue_name = f'intermediate_queue_{layer_id}'
+    channel.queue_declare(forward_queue_name, durable=False)
+    trace.append(client_id)
+
+    message = pickle.dumps({"data": output.detach().cpu().numpy(), "label": labels, "trace": trace})
+
+    channel.basic_publish(
+        exchange='',
+        routing_key=forward_queue_name,
+        body=message
+    )
 
 
 def send_gradient(gradient, trace):
@@ -198,7 +204,6 @@ def send_gradient(gradient, trace):
         routing_key=backward_queue_name,
         body=message
     )
-    # print("Sent gradient")
 
 
 def stop_connection():
@@ -206,18 +211,36 @@ def stop_connection():
 
 
 def train_on_device():
+    intermediate_output = None
     channel = connection.channel()
     forward_queue_name = f'intermediate_queue_{layer_id - 1}'
+    backward_queue_name = f'gradient_queue_{layer_id}_{client_id}'
     channel.queue_declare(queue=forward_queue_name, durable=False)
+    channel.queue_declare(queue=backward_queue_name, durable=False)
     print('Waiting for intermediate output. To exit press CTRL+C')
+
     while True:
         # Training model
-        model_part2.train()
-        optimizer2.zero_grad()
+        model.train()
+        optimizer.zero_grad()
         # Process gradient
-        method_frame, header_frame, body = channel.basic_get(queue=forward_queue_name, auto_ack=True)
-        if method_frame:
-            if body:
+        method_frame, header_frame, body = channel.basic_get(queue=backward_queue_name, auto_ack=True)
+        if method_frame and body:
+            received_data = pickle.loads(body)
+            gradient_numpy = received_data["data"]
+            gradient = torch.tensor(gradient_numpy).to(device)
+            trace = received_data["trace"]
+
+            output = model(intermediate_output)
+            intermediate_output.retain_grad()
+            output.backward(gradient=gradient, retain_graph=True)
+            optimizer.step()
+
+            gradient = intermediate_output.grad
+            send_gradient(gradient, trace)
+        else:
+            method_frame, header_frame, body = channel.basic_get(queue=forward_queue_name, auto_ack=True)
+            if method_frame and body:
                 # print("Received intermediate output")
                 received_data = pickle.loads(body)
                 intermediate_output_numpy = received_data["data"]
@@ -226,17 +249,13 @@ def train_on_device():
                 labels = received_data["label"].to(device)
                 intermediate_output = torch.tensor(intermediate_output_numpy, requires_grad=True).to(device)
 
-                output = model_part2(intermediate_output)
-                loss = criterion(output, labels)
-                print(f"Loss: {loss.item()}")
-                intermediate_output.retain_grad()
-                loss.backward()
-                optimizer2.step()
+                output = model(intermediate_output)
+                output = output.detach().requires_grad_(True)
 
-                gradient = intermediate_output.grad
-                send_gradient(gradient, trace)  # 1F1B
+                send_intermediate_output(output, labels, trace)
+
         # Check training process
-        else:
+        if method_frame is None:
             broadcast_queue_name = 'broadcast_queue'
             method_frame, header_frame, body = channel.basic_get(queue=broadcast_queue_name, auto_ack=True)
             if body:
