@@ -99,7 +99,7 @@ class Server:
                 print(f"File {filepath} does not exist.")
 
             response = {"action": "START",
-                        "message": "Server accepted are connection!",
+                        "message": "Server accept the connection!",
                         "parameters": state_dict}
 
             channel.basic_publish(exchange='',

@@ -177,14 +177,14 @@ credentials = pika.PlainCredentials(username, password)
 connection = pika.BlockingConnection(pika.ConnectionParameters(address, 5672, '/', credentials))
 
 
-def send_gradient(gradient, trace):
+def send_gradient(data_id, gradient, trace):
     channel = connection.channel()
     to_client_id = trace[-1]
     trace.pop(-1)
     backward_queue_name = f'gradient_queue_{layer_id - 1}_{to_client_id}'
     channel.queue_declare(queue=backward_queue_name, durable=False)
 
-    message = pickle.dumps({"data": gradient.detach().cpu().numpy(), "trace": trace})
+    message = pickle.dumps({"data_id": data_id, "data": gradient.detach().cpu().numpy(), "trace": trace})
 
     channel.basic_publish(
         exchange='',
@@ -203,6 +203,7 @@ def train_on_device():
     forward_queue_name = f'intermediate_queue_{layer_id - 1}'
     channel.queue_declare(queue=forward_queue_name, durable=False)
     print('Waiting for intermediate output. To exit press CTRL+C')
+
     while True:
         # Training model
         model.train()
@@ -214,6 +215,7 @@ def train_on_device():
             received_data = pickle.loads(body)
             intermediate_output_numpy = received_data["data"]
             trace = received_data["trace"]
+            data_id = received_data["data_id"]
 
             labels = received_data["label"].to(device)
             intermediate_output = torch.tensor(intermediate_output_numpy, requires_grad=True).to(device)
@@ -226,7 +228,7 @@ def train_on_device():
             optimizer.step()
 
             gradient = intermediate_output.grad
-            send_gradient(gradient, trace)  # 1F1B
+            send_gradient(data_id, gradient, trace)  # 1F1B
         # Check training process
         else:
             broadcast_queue_name = 'broadcast_queue'

@@ -23,6 +23,7 @@ client_id = args.id
 address = "192.168.101.234"
 username = "dai"
 password = "dai"
+control_count = 3
 
 device = None
 
@@ -179,12 +180,12 @@ credentials = pika.PlainCredentials(username, password)
 connection = pika.BlockingConnection(pika.ConnectionParameters(address, 5672, '/', credentials))
 
 
-def send_intermediate_output(output, labels):
+def send_intermediate_output(data_id, output, labels):
     channel = connection.channel()
     forward_queue_name = f'intermediate_queue_{layer_id}'
     channel.queue_declare(forward_queue_name, durable=False)
 
-    message = pickle.dumps({"data": output.detach().cpu().numpy(), "label": labels, "trace": [client_id]})
+    message = pickle.dumps({"data_id": data_id, "data": output.detach().cpu().numpy(), "label": labels, "trace": [client_id]})
 
     channel.basic_publish(
         exchange='',
@@ -201,6 +202,7 @@ def train_on_device(trainloader):
     num_forward = 0
     num_backward = 0
     end_data = False
+    data_store = {}
 
     with tqdm(total=len(trainloader), desc="Processing", unit="step") as pbar:
         while True:
@@ -214,15 +216,23 @@ def train_on_device(trainloader):
                 received_data = pickle.loads(body)
                 gradient_numpy = received_data["data"]
                 gradient = torch.tensor(gradient_numpy).to(device)
-                # print(" [x] Received gradient")
-                intermediate_output.backward(gradient)
+                data_id = received_data["data_id"]
+
+                data_input = data_store.pop(data_id)
+                output = model(data_input)
+                output.backward(gradient=gradient, retain_graph=True)
                 optimizer.step()
-                # print(" [x] Updated Model Part 1")
             else:
+                # speed control
+                if len(data_store) > control_count:
+                    continue
                 # Process forward message
                 try:
-                    data, labels = next(data_iter)
-                    intermediate_output = model(data.to(device))
+                    training_data, labels = next(data_iter)
+                    training_data = training_data.to(device)
+                    data_id = uuid.uuid4()
+                    data_store[data_id] = training_data
+                    intermediate_output = model(training_data)
                     intermediate_output = intermediate_output.detach().requires_grad_(True)
 
                     # Send to next layers
@@ -230,16 +240,15 @@ def train_on_device(trainloader):
                     # tqdm bar
                     pbar.update(1)
 
-                    send_intermediate_output(intermediate_output, labels)
-                    # TODO: speed control
-                    time.sleep(0.25)
+                    send_intermediate_output(data_id, intermediate_output, labels)
+
                 except StopIteration:
                     end_data = True
             if end_data and (num_forward == num_backward):
                 # Finish epoch training, send notify to server
                 print("Finish training!")
-                data = {"action": "NOTIFY", "client_id": client_id, "layer_id": layer_id, "message": "Finish training!"}
-                client.send_to_server(data, wait=False)
+                training_data = {"action": "NOTIFY", "client_id": client_id, "layer_id": layer_id, "message": "Finish training!"}
+                client.send_to_server(training_data, wait=False)
                 break
 
 
