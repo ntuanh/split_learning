@@ -55,6 +55,9 @@ cover/
 *.mo
 *.pot
 
+# DNN Model
+*.pth
+
 # Django stuff:
 *.log
 local_settings.py
