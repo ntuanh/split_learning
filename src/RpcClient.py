@@ -33,6 +33,7 @@ class RpcClient:
         if action == "START":
             # Read parameters and load to model
             if parameters:
+                self.model.to("cpu")
                 self.model.load_state_dict(parameters)
             # Start training
             if self.layer_id == 1:
@@ -40,6 +41,7 @@ class RpcClient:
             else:
                 self.train_func()
             # Stop training, then send parameters to server
+            self.model.to("cpu")
             model_state_dict = self.model.state_dict()
             data = {"action": "UPDATE", "client_id": self.client_id, "layer_id": self.layer_id,
                     "message": "Send parameters to Server", "parameters": model_state_dict}

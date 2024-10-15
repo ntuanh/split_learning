@@ -115,7 +115,7 @@ class ModelPart3(nn.Module):
         return nn.Sequential(*layers)
 
 
-model = ModelPart3().to(device)
+model = ModelPart3()
 optimizer = optim.SGD(model.parameters(), lr=0.01)
 criterion = nn.CrossEntropyLoss()
 
@@ -150,7 +150,7 @@ def train_on_device():
     forward_queue_name = f'intermediate_queue_{layer_id - 1}'
     channel.queue_declare(queue=forward_queue_name, durable=False)
     print('Waiting for intermediate output. To exit press CTRL+C')
-
+    model.to(device)
     while True:
         # Training model
         model.train()

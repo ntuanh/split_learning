@@ -98,7 +98,7 @@ class ModelPart1(nn.Module):
         return x
 
 
-model = ModelPart1().to(device)
+model = ModelPart1()
 optimizer = optim.SGD(model.parameters(), lr=0.01)
 
 
@@ -129,7 +129,7 @@ def train_on_device(trainloader):
     num_backward = 0
     end_data = False
     data_store = {}
-
+    model.to(device)
     with tqdm(total=len(trainloader), desc="Processing", unit="step") as pbar:
         while True:
             # Training model
