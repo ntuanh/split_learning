@@ -4,6 +4,7 @@ import torchvision
 import torchvision.transforms as transforms
 import torch.nn.functional as F
 
+
 class Bottleneck(nn.Module):
     expansion = 4
 
@@ -49,6 +50,7 @@ def identity_layers(ResBlock, blocks, planes):
 
     return nn.Sequential(*layers)
 
+
 class ModelPart1(nn.Module):
     def __init__(self, num_channels=3):
         super(ModelPart1, self).__init__()
@@ -92,6 +94,7 @@ class ModelPart2(nn.Module):
         self.in_channels = planes * ResBlock.expansion
 
         return nn.Sequential(*layers)
+
     def forward(self, x):
         x = self.layer1(x)
         x = self.layer2(x)
@@ -99,6 +102,7 @@ class ModelPart2(nn.Module):
         x = self.layer4(x)
         x = self.layer5(x)
         return x
+
 
 class ModelPart3(nn.Module):
     def __init__(self, ResBlock=Bottleneck, layer_list=None, num_classes=10):
@@ -128,6 +132,7 @@ class ModelPart3(nn.Module):
         self.in_channels = planes * ResBlock.expansion
 
         return nn.Sequential(*layers)
+
     def forward(self, x):
         x = self.layer6(x)
         x = self.layer7(x)
@@ -136,6 +141,7 @@ class ModelPart3(nn.Module):
         x = x.reshape(x.shape[0], -1)
         x = self.fc(x)
         return x
+
 
 class FullModel(nn.Module):
     def __init__(self):
@@ -150,39 +156,28 @@ class FullModel(nn.Module):
         x = self.part3(x)
         return x
 
-part1_state_dict = torch.load('resnet_model_1.pth', weights_only= True)
-part2_state_dict = torch.load('resnet_model_2.pth', weights_only= True)
-part3_state_dict = torch.load('resnet_model_3.pth', weights_only= True)
-
-full_model = FullModel()
-
-full_model.part1.load_state_dict(part1_state_dict)
-full_model.part2.load_state_dict(part2_state_dict)
-full_model.part3.load_state_dict(part3_state_dict)
-
-transform_train = transforms.Compose([
-    transforms.RandomCrop(32, padding=4),
-    transforms.RandomHorizontalFlip(),
-    transforms.ToTensor(),
-    transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
-])
 
 transform_test = transforms.Compose([
     transforms.ToTensor(),
     transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
 ])
 
-trainset = torchvision.datasets.CIFAR10(
-    root='./data', train=True, download=True, transform=transform_train)
-train_loader = torch.utils.data.DataLoader(
-    trainset, batch_size=128, shuffle=True, num_workers=2)
-
 testset = torchvision.datasets.CIFAR10(
     root='./data', train=False, download=True, transform=transform_test)
 test_loader = torch.utils.data.DataLoader(
     testset, batch_size=100, shuffle=False, num_workers=2)
 
-def test():
+
+def test(filename, num_client):
+    full_model = FullModel()
+
+    part1_state_dict = torch.load(f'{filename}_1.pth', weights_only=False)
+    part2_state_dict = torch.load(f'{filename}_2.pth', weights_only=False)
+    part3_state_dict = torch.load(f'{filename}_3.pth', weights_only=False)
+
+    full_model.part1.load_state_dict(part1_state_dict)
+    full_model.part2.load_state_dict(part2_state_dict)
+    full_model.part3.load_state_dict(part3_state_dict)
     # evaluation mode
     full_model.eval()
     test_loss = 0
@@ -197,6 +192,3 @@ def test():
     print('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
         test_loss, correct, len(test_loader.dataset),
         100.0 * correct / len(test_loader.dataset)))
-
-if __name__ == '__main__':
-    test()

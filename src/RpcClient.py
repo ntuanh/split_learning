@@ -45,7 +45,8 @@ class RpcClient:
             model_state_dict = self.model.state_dict()
             data = {"action": "UPDATE", "client_id": self.client_id, "layer_id": self.layer_id,
                     "message": "Send parameters to Server", "parameters": model_state_dict}
-            self.send_to_server(data, wait=False)
+            self.reconnect()
+            self.send_to_server(data)
 
     def connect(self):
         credentials = pika.PlainCredentials(self.username, self.password)
