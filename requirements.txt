@@ -3,3 +3,4 @@ torch
 torchvision
 requests~=2.32.3
 tqdm
+pyyaml

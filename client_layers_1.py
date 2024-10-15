@@ -2,6 +2,7 @@ import pika
 import uuid
 import pickle
 import argparse
+import yaml
 from tqdm import tqdm
 
 import torch
@@ -18,13 +19,17 @@ parser.add_argument('--id', type=int, required=True, help='ID of client')
 args = parser.parse_args()
 assert args.id is not None, "Must provide id for client."
 
-batch_size = 256
+with open('config.yaml', 'r') as file:
+    config = yaml.safe_load(file)
+
 layer_id = 1
 client_id = args.id
-address = "192.168.101.234"
-username = "dai"
-password = "dai"
-control_count = 3
+address = config["rabbit"]["address"]
+username = config["rabbit"]["username"]
+password = config["rabbit"]["password"]
+batch_size = config["learning"]["batch-size"]
+lr = config["learning"]["learning-rate"]
+control_count = config["learning"]["control-count"]
 
 device = None
 
@@ -37,7 +42,7 @@ else:
 
 
 model = ModelPart1()
-optimizer = optim.SGD(model.parameters(), lr=0.01)
+optimizer = optim.SGD(model.parameters(), lr=lr)
 
 
 credentials = pika.PlainCredentials(username, password)

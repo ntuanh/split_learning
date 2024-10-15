@@ -1,0 +1,20 @@
+name: Split Learning
+server:
+  num-round: 1
+  clients:
+    - 1
+    - 1
+    - 1
+  filename: resnet_model
+  validation: False
+
+rabbit:
+  address: 127.0.0.1
+  username: admin
+  password: admin
+
+learning:
+  learning-rate: 0.01
+  momentum: 1
+  batch-size: 256
+  control-count: 3

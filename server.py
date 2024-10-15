@@ -3,6 +3,7 @@ import pika
 import pickle
 import argparse
 import sys
+import yaml
 
 import torch
 
@@ -12,16 +13,20 @@ import src.Model
 
 parser = argparse.ArgumentParser(description="Split learning framework with controller.")
 
-parser.add_argument('--topo', type=int, nargs='+', required=True, help='List of client topo, example: --topo 2 3')
+# parser.add_argument('--topo', type=int, nargs='+', required=True, help='List of client topo, example: --topo 2 3')
 
 args = parser.parse_args()
 
-total_clients = args.topo
-filename = "resnet_model"
-address = "192.168.101.234"
-username = "dai"
-password = "dai"
-num_round = 5
+with open('config.yaml', 'r') as file:
+    config = yaml.safe_load(file)
+
+total_clients = config["server"]["clients"]
+filename = config["server"]["filename"]
+address = config["rabbit"]["address"]
+username = config["rabbit"]["username"]
+password = config["rabbit"]["password"]
+num_round = config["server"]["num-round"]
+validation = config["server"]["validation"]
 
 
 class Server:
@@ -87,7 +92,8 @@ class Server:
                 self.current_clients = [0 for _ in range(len(total_clients))]
                 self.all_model_parameters = [[] for _ in range(len(total_clients))]
                 # Test
-                src.Model.test(filename, len(total_clients))
+                if validation:
+                    src.Model.test(filename, len(total_clients))
                 # Start a new training round
                 self.num_round -= 1
                 if self.num_round > 0:

@@ -1,6 +1,7 @@
 import pika
 import pickle
 import argparse
+import yaml
 
 import torch
 import torch.nn as nn
@@ -15,12 +16,17 @@ parser.add_argument('--id', type=int, required=True, help='ID of client')
 args = parser.parse_args()
 assert args.id is not None, "Must provide id for client."
 
+with open('config.yaml', 'r') as file:
+    config = yaml.safe_load(file)
+
 layer_id = 2
 client_id = args.id
-address = "192.168.101.234"
-username = "dai"
-password = "dai"
-control_count = 3
+address = config["rabbit"]["address"]
+username = config["rabbit"]["username"]
+password = config["rabbit"]["password"]
+batch_size = config["learning"]["batch-size"]
+lr = config["learning"]["learning-rate"]
+control_count = config["learning"]["control-count"]
 
 device = None
 
@@ -33,7 +39,7 @@ else:
 
 
 model = ModelPart2()
-optimizer = optim.SGD(model.parameters(), lr=0.01)
+optimizer = optim.SGD(model.parameters(), lr=lr)
 criterion = nn.CrossEntropyLoss()
 
 
