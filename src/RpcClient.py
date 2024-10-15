@@ -47,6 +47,8 @@ class RpcClient:
                     "message": "Send parameters to Server", "parameters": model_state_dict}
             self.reconnect()
             self.send_to_server(data)
+        elif action == "STOP":
+            return
 
     def connect(self):
         credentials = pika.PlainCredentials(self.username, self.password)

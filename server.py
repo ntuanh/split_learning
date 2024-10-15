@@ -2,6 +2,7 @@ import os
 import pika
 import pickle
 import argparse
+import sys
 
 import torch
 
@@ -91,26 +92,34 @@ class Server:
                 self.num_round -= 1
                 if self.num_round > 0:
                     self.notify_clients(ch)
+                else:
+                    self.notify_clients(ch, start=False)
+                    sys.exit()
 
         # Ack the message
         ch.basic_ack(delivery_tag=method.delivery_tag)
 
-    def notify_clients(self, channel):
+    def notify_clients(self, channel, start=True):
         # Send message to clients when consumed all clients
         for routing_key in self.responses:
             layer = self.responses[routing_key]["layer_id"]
             # Read parameters file
             filepath = f'{filename}_{layer}.pth'
             state_dict = None
-            if os.path.exists(filepath):
-                state_dict = torch.load(filepath, weights_only=False)
-                print("Model loaded successfully.")
-            else:
-                print(f"File {filepath} does not exist.")
+            if start:
+                if os.path.exists(filepath):
+                    state_dict = torch.load(filepath, weights_only=False)
+                    print("Model loaded successfully.")
+                else:
+                    print(f"File {filepath} does not exist.")
 
-            response = {"action": "START",
-                        "message": "Server accept the connection!",
-                        "parameters": state_dict}
+                response = {"action": "START",
+                            "message": "Server accept the connection!",
+                            "parameters": state_dict}
+            else:
+                response = {"action": "STOP",
+                            "message": "Stop training!",
+                            "parameters": state_dict}
 
             channel.basic_publish(exchange='',
                                   routing_key=routing_key,
