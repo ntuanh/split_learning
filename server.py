@@ -202,7 +202,8 @@ def delete_old_queues():
 
         for queue in queues:
             queue_name = queue['name']
-            if queue_name.startswith("amq.gen-"):
+            if queue_name.startswith("rpc_callback") or queue_name.startswith(
+                    "intermediate_queue") or queue_name.startswith("gradient_queue"):
                 try:
                     http_channel.queue_delete(queue=queue_name)
                     print(f"Queue '{queue_name}' deleted.")

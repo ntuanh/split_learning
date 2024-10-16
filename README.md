@@ -89,28 +89,21 @@ python server.py
 
 ### Client
 
-Note: In the same layer, clients are allowed to use duplicate IDs.
-
 #### Layer 1
 ```commandline
-python client_layers_1.py --id 1
-```
-
-```commandline
-python client_layers_1.py --id 2
-```
-
-```commandline
-python client_layers_1.py --id 3
+python client_layers_1.py
 ```
 
 #### Layer 2
 ```commandline
-python client_layers_2.py --id 1
+python client_layers_2.py
 ```
+
+#### Layer 3
 ```commandline
-python client_layers_2.py --id 2
+python client_layers_3.py
 ```
+
 
 ## Parameter Files
 

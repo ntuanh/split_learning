@@ -1,4 +1,5 @@
 import pika
+import uuid
 import pickle
 import argparse
 import yaml
@@ -11,16 +12,15 @@ from src.RpcClient import RpcClient
 from src.Model import ModelPart2
 
 parser = argparse.ArgumentParser(description="Split learning framework")
-parser.add_argument('--id', type=int, required=True, help='ID of client')
+# parser.add_argument('--id', type=int, required=True, help='ID of client')
 
 args = parser.parse_args()
-assert args.id is not None, "Must provide id for client."
 
 with open('config.yaml', 'r') as file:
     config = yaml.safe_load(file)
 
 layer_id = 2
-client_id = args.id
+client_id = uuid.uuid4()
 address = config["rabbit"]["address"]
 username = config["rabbit"]["username"]
 password = config["rabbit"]["password"]
