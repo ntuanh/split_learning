@@ -7,7 +7,7 @@
 **Split learning** is a method of distributed deep learning training, where a machine learning model is split into multiple parts and trained across multiple machines or devices without needing to share the full data or model. This ensures the security and privacy of data, particularly in applications requiring privacy protection such as healthcare, finance, or when devices lack the computational resources to train the full model.
 
 ### How Split Learning Works:
-- **Model splitting**: The deep learning model is divided into two (or more) parts. For example, part of the model may run on the user device (edge device), while the rest runs on the server.
+- **Model splitting**: The deep learning model is divided into two (or more) parts. For example, part of the model may run on the user device (edge device), while the controller function run on the server.
 - **Communication process**:
   - The user device trains a portion of the model based on its local data or data from another device and sends the intermediate activations to the next layer's machine instead of sending the full data.
   - The clients at the last layers will calculate the backward pass and return the corresponding gradients to the user device to update the part of the model. This process repeats until the model completes training.
@@ -53,6 +53,12 @@ volumes:
     driver: local
 ```
 
+Then run the RabbitMQ container
+
+```commandline
+docker-compose up -d
+```
+
 ## Configuration
 
 Application configuration is in the `config.yaml` file:
@@ -80,7 +86,11 @@ learning:
   control-count: 3    # control count on client
 ```
 
+This configuration is use for server and all clients.
+
 ## How to Run
+
+Alter your configuration, you need to run the server to listen and control the request from clients.
 
 ### Server
 ```commandline
@@ -88,6 +98,8 @@ python server.py
 ```
 
 ### Client
+
+Now, when server is ready, run clients simultaneously with total number of client that you defined.
 
 #### Layer 1
 ```commandline
@@ -103,7 +115,6 @@ python client_layers_2.py
 ```commandline
 python client_layers_3.py
 ```
-
 
 ## Parameter Files
 
