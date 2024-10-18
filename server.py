@@ -129,7 +129,7 @@ class Server:
                 print("Send stop training to clients")
                 response = {"action": "STOP",
                             "message": "Stop training!",
-                            "parameters": state_dict}
+                            "parameters": None}
             self.send_to_response(client_id, pickle.dumps(response))
 
     def start(self):
@@ -183,6 +183,7 @@ class Server:
 
                 if state_dicts[0][key].dtype == torch.long:
                     avg_state_dict[key] = avg_state_dict[key].long()
+
             # Save to files
             torch.save(avg_state_dict, f'{filename}_{layer + 1}.pth')
 
@@ -210,7 +211,7 @@ def delete_old_queues():
             else:
                 try:
                     http_channel.queue_purge(queue=queue_name)
-                    print(f"Queue '{queue_name}' deleted.")
+                    print(f"Queue '{queue_name}' purged.")
                 except Exception as e:
                     print(f"Failed to purge queue '{queue_name}': {e}")
 

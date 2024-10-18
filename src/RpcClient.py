@@ -1,4 +1,4 @@
-import uuid
+import time
 import pickle
 import pika
 
@@ -32,6 +32,7 @@ class RpcClient:
             if body:
                 # print(f"Received message from server {received_data}")
                 status = self.response_message(body)
+            time.sleep(0.5)
 
     def response_message(self, body):
         self.response = pickle.loads(body)
