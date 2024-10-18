@@ -39,10 +39,8 @@ else:
     device = "cpu"
     print(f"Using device: CPU")
 
-
 model = ModelPart1()
 optimizer = optim.SGD(model.parameters(), lr=lr)
-
 
 credentials = pika.PlainCredentials(username, password)
 connection = pika.BlockingConnection(pika.ConnectionParameters(address, 5672, '/', credentials))
@@ -53,7 +51,8 @@ def send_intermediate_output(data_id, output, labels):
     forward_queue_name = f'intermediate_queue_{layer_id}'
     channel.queue_declare(forward_queue_name, durable=False)
 
-    message = pickle.dumps({"data_id": data_id, "data": output.detach().cpu().numpy(), "label": labels, "trace": [client_id]})
+    message = pickle.dumps(
+        {"data_id": data_id, "data": output.detach().cpu().numpy(), "label": labels, "trace": [client_id]})
 
     channel.basic_publish(
         exchange='',
@@ -115,8 +114,17 @@ def train_on_device(trainloader):
             if end_data and (num_forward == num_backward):
                 # Finish epoch training, send notify to server
                 print("Finish training!")
-                training_data = {"action": "NOTIFY", "client_id": client_id, "layer_id": layer_id, "message": "Finish training!"}
-                client.send_to_server(training_data, wait=False)
+                training_data = {"action": "NOTIFY", "client_id": client_id, "layer_id": layer_id,
+                                 "message": "Finish training!"}
+                client.send_to_server(training_data)
+
+                while True:  # Wait for broadcast
+                    broadcast_queue_name = 'broadcast_queue'
+                    method_frame, header_frame, body = channel.basic_get(queue=broadcast_queue_name, auto_ack=True)
+                    if body:
+                        received_data = pickle.loads(body)
+                        print(f"Received message from server {received_data}")
+                        break
                 break
 
 
@@ -148,3 +156,4 @@ if __name__ == "__main__":
     data = {"action": "REGISTER", "client_id": client_id, "layer_id": layer_id, "message": "Hello from Client!"}
     client = RpcClient(client_id, layer_id, model, address, username, password, train_on_device, train_loader)
     client.send_to_server(data)
+    client.wait_response()

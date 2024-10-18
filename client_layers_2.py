@@ -37,11 +37,9 @@ else:
     device = "cpu"
     print(f"Using device: CPU")
 
-
 model = ModelPart2()
 optimizer = optim.SGD(model.parameters(), lr=lr)
 criterion = nn.CrossEntropyLoss()
-
 
 credentials = pika.PlainCredentials(username, password)
 connection = pika.BlockingConnection(pika.ConnectionParameters(address, 5672, '/', credentials))
@@ -78,10 +76,6 @@ def send_gradient(data_id, gradient, trace):
     )
 
 
-def stop_connection():
-    connection.close()
-
-
 def train_on_device():
     channel = connection.channel()
     forward_queue_name = f'intermediate_queue_{layer_id - 1}'
@@ -115,7 +109,6 @@ def train_on_device():
         else:
             method_frame, header_frame, body = channel.basic_get(queue=forward_queue_name, auto_ack=True)
             if method_frame and body:
-                # print("Received intermediate output")
                 received_data = pickle.loads(body)
                 intermediate_output_numpy = received_data["data"]
                 trace = received_data["trace"]
@@ -147,3 +140,4 @@ if __name__ == "__main__":
     data = {"action": "REGISTER", "client_id": client_id, "layer_id": layer_id, "message": "Hello from Client!"}
     client = RpcClient(client_id, layer_id, model, address, username, password, train_on_device)
     client.send_to_server(data)
+    client.wait_response()

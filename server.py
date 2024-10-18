@@ -41,8 +41,10 @@ class Server:
 
         self.total_clients = total_clients
         self.current_clients = [0 for _ in range(len(total_clients))]
+        self.register_clients = [0 for _ in range(len(total_clients))]
         self.first_layer_clients = 0
         self.responses = {}  # Save response
+        self.list_clients = []
 
         self.all_model_parameters = [[] for _ in range(len(total_clients))]
 
@@ -57,17 +59,18 @@ class Server:
         client_id = message["client_id"]
         layer_id = message["layer_id"]
         self.responses[routing_key] = message
+        if (str(client_id), layer_id) not in self.list_clients:
+            self.list_clients.append((str(client_id), layer_id))
 
         if action == "REGISTER":
             print(f"Received message from client: {message}")
             # Save messages from clients
-            self.current_clients[layer_id - 1] += 1
+            self.register_clients[layer_id - 1] += 1
 
-            # If consumed all clients
-            if self.current_clients == self.total_clients:
+            # If consumed all clients - Register for first time
+            if self.register_clients == self.total_clients:
                 print("All clients are connected. Sending notifications.")
                 self.notify_clients(ch)
-                self.current_clients = [0 for _ in range(len(total_clients))]
         elif action == "NOTIFY":
             print(f"Received message from client: {message}")
             if layer_id == 1:
@@ -76,10 +79,11 @@ class Server:
             if self.first_layer_clients == self.total_clients[0]:
                 self.first_layer_clients = 0
                 print("Received finish training notification")
-                self.stop_training_round(ch)
-                for _ in range(sum(self.total_clients[1:])):
+                for _ in range(sum(self.total_clients)):
                     self.send_to_broadcast()
         elif action == "UPDATE":
+            data_message = message["message"]
+            print(f"Received message from client: {data_message}")
             # Save client's model parameters
             model_state_dict = message["parameters"]
             self.current_clients[layer_id - 1] += 1
@@ -107,10 +111,9 @@ class Server:
 
     def notify_clients(self, channel, start=True):
         # Send message to clients when consumed all clients
-        for routing_key in self.responses:
-            layer = self.responses[routing_key]["layer_id"]
+        for (client_id, layer_id) in self.list_clients:
             # Read parameters file
-            filepath = f'{filename}_{layer}.pth'
+            filepath = f'{filename}_{layer_id}.pth'
             state_dict = None
             if start:
                 if os.path.exists(filepath):
@@ -123,31 +126,26 @@ class Server:
                             "message": "Server accept the connection!",
                             "parameters": state_dict}
             else:
+                print("Send stop training to clients")
                 response = {"action": "STOP",
                             "message": "Stop training!",
                             "parameters": state_dict}
-
-            channel.basic_publish(exchange='',
-                                  routing_key=routing_key,
-                                  properties=pika.BasicProperties(),
-                                  body=pickle.dumps(response))
-            print(f"Sent notification to client {routing_key}")
-
-    def stop_training_round(self, channel):
-        # Send message to clients when consumed all clients
-        for routing_key in self.responses:
-            response = {"action": "STOP",
-                        "message": "Stop training and please send your parameters",
-                        "parameters": None}
-
-            channel.basic_publish(exchange='',
-                                  routing_key=routing_key,
-                                  properties=pika.BasicProperties(),
-                                  body=pickle.dumps(response))
-            print(f"Send stop training request to clients {routing_key}")
+            self.send_to_response(client_id, pickle.dumps(response))
 
     def start(self):
         self.channel.start_consuming()
+
+    def send_to_response(self, client_id, message):
+        reply_channel = self.connection.channel()
+        reply_queue_name = f'reply_{client_id}'
+        reply_channel.queue_declare(reply_queue_name, durable=False)
+
+        print(f"Sent notification to client {client_id}")
+        reply_channel.basic_publish(
+            exchange='',
+            routing_key=reply_queue_name,
+            body=message
+        )
 
     def send_to_broadcast(self):
         broadcast_channel = self.connection.channel()
@@ -202,8 +200,8 @@ def delete_old_queues():
 
         for queue in queues:
             queue_name = queue['name']
-            if queue_name.startswith("rpc_callback") or queue_name.startswith(
-                    "intermediate_queue") or queue_name.startswith("gradient_queue"):
+            if queue_name.startswith("reply") or queue_name.startswith("intermediate_queue") or queue_name.startswith(
+                    "gradient_queue"):
                 try:
                     http_channel.queue_delete(queue=queue_name)
                     print(f"Queue '{queue_name}' deleted.")
