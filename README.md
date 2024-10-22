@@ -125,3 +125,11 @@ If the `*.pth` file exists, the server will read the file and send the parameter
 ---
 
 The application is under development...
+
+TODO:
+- Config with SL, FL mode
+- Package clients with first and last layers
+- Delete all queues alter finish
+- Package server class
+- Global config file
+- Create close connection request

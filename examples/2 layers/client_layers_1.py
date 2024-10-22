@@ -11,14 +11,14 @@ import torchvision
 import torchvision.transforms as transforms
 
 from src.RpcClient import RpcClient
-from src.Model import ModelPart1
+from Model import ModelPart1
 
 parser = argparse.ArgumentParser(description="Split learning framework")
 # parser.add_argument('--id', type=int, required=True, help='ID of client')
 
 args = parser.parse_args()
 
-with open('config.yaml', 'r') as file:
+with open('../../config.yaml', 'r') as file:
     config = yaml.safe_load(file)
 
 layer_id = 1
