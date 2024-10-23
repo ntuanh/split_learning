@@ -20,6 +20,15 @@
 
 ## Deployment Model
 
+![deploy_model](pics/deploy_model.png)
+
+To deploy the service, each blocks in the system (server and clients) need to ensure the following requirements:
+- All must be successfully connected to the same queue server, which serves as the main communication hub for the entire system.
+- The server must be correctly configured with the topology and the DNN model loaded.
+- The clients must synchronize with each other when the model is split and joined according to the topology agreed upon with the server.
+
+Clients training flow:
+
 ![sl_model](pics/sl_model.png)
 
 ## Required Packages
