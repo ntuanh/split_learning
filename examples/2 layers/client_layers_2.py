@@ -65,6 +65,7 @@ def train_on_device():
     channel = connection.channel()
     forward_queue_name = f'intermediate_queue_{layer_id - 1}'
     channel.queue_declare(queue=forward_queue_name, durable=False)
+    channel.basic_qos(prefetch_count=10)
     print('Waiting for intermediate output. To exit press CTRL+C')
     model.to(device)
     while True:

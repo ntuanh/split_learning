@@ -82,6 +82,7 @@ def train_on_device():
     backward_queue_name = f'gradient_queue_{layer_id}_{client_id}'
     channel.queue_declare(queue=forward_queue_name, durable=False)
     channel.queue_declare(queue=backward_queue_name, durable=False)
+    channel.basic_qos(prefetch_count=10)
     data_store = {}
     print('Waiting for intermediate output. To exit press CTRL+C')
     model.to(device)
