@@ -43,10 +43,10 @@ criterion = nn.CrossEntropyLoss()
 
 credentials = pika.PlainCredentials(username, password)
 connection = pika.BlockingConnection(pika.ConnectionParameters(address, 5672, '/', credentials))
+channel = connection.channel()
 
 
 def send_intermediate_output(data_id, output, labels, trace):
-    channel = connection.channel()
     forward_queue_name = f'intermediate_queue_{layer_id}'
     channel.queue_declare(forward_queue_name, durable=False)
     trace.append(client_id)
@@ -61,7 +61,6 @@ def send_intermediate_output(data_id, output, labels, trace):
 
 
 def send_gradient(data_id, gradient, trace):
-    channel = connection.channel()
     to_client_id = trace[-1]
     trace.pop(-1)
     backward_queue_name = f'gradient_queue_{layer_id - 1}_{to_client_id}'
@@ -77,7 +76,6 @@ def send_gradient(data_id, gradient, trace):
 
 
 def train_on_device():
-    channel = connection.channel()
     forward_queue_name = f'intermediate_queue_{layer_id - 1}'
     backward_queue_name = f'gradient_queue_{layer_id}_{client_id}'
     channel.queue_declare(queue=forward_queue_name, durable=False)

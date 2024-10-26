@@ -49,10 +49,6 @@ connection = pika.BlockingConnection(pika.ConnectionParameters(address, 5672, '/
 
 
 def train_on_device(trainloader):
-    channel = connection.channel()
-    backward_queue_name = f'gradient_queue_{layer_id}_{client_id}'
-    channel.queue_declare(queue=backward_queue_name, durable=False)
-    channel.basic_qos(prefetch_count=10)
     model.to(device)
     model.train()
     for (training_data, label) in tqdm(trainloader):
@@ -70,6 +66,7 @@ def train_on_device(trainloader):
                      "message": "Finish training!"}
     client.send_to_server(training_data)
 
+    channel = connection.channel()
     while True:  # Wait for broadcast
         broadcast_queue_name = 'broadcast_queue'
         method_frame, header_frame, body = channel.basic_get(queue=broadcast_queue_name, auto_ack=True)

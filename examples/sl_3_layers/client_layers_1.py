@@ -44,10 +44,10 @@ optimizer = optim.SGD(model.parameters(), lr=lr)
 
 credentials = pika.PlainCredentials(username, password)
 connection = pika.BlockingConnection(pika.ConnectionParameters(address, 5672, '/', credentials))
+channel = connection.channel()
 
 
 def send_intermediate_output(data_id, output, labels):
-    channel = connection.channel()
     forward_queue_name = f'intermediate_queue_{layer_id}'
     channel.queue_declare(forward_queue_name, durable=False)
 
@@ -63,7 +63,6 @@ def send_intermediate_output(data_id, output, labels):
 
 def train_on_device(trainloader):
     data_iter = iter(trainloader)
-    channel = connection.channel()
     backward_queue_name = f'gradient_queue_{layer_id}_{client_id}'
     channel.queue_declare(queue=backward_queue_name, durable=False)
     channel.basic_qos(prefetch_count=10)
