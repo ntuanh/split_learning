@@ -19,7 +19,7 @@ parser = argparse.ArgumentParser(description="Split learning framework")
 
 args = parser.parse_args()
 
-with open('../../config.yaml', 'r') as file:
+with open('config.yaml', 'r') as file:
     config = yaml.safe_load(file)
 
 layer_id = 1
@@ -45,7 +45,6 @@ optimizer = optim.SGD(model.parameters(), lr=lr)
 criterion = nn.CrossEntropyLoss()
 
 credentials = pika.PlainCredentials(username, password)
-connection = pika.BlockingConnection(pika.ConnectionParameters(address, 5672, '/', credentials))
 
 
 def train_on_device(trainloader):
@@ -66,9 +65,11 @@ def train_on_device(trainloader):
                      "message": "Finish training!"}
     client.send_to_server(training_data)
 
+    broadcast_queue_name = 'broadcast_queue'
+    connection = pika.BlockingConnection(pika.ConnectionParameters(address, 5672, '/', credentials))
     channel = connection.channel()
+    channel.queue_declare(queue=broadcast_queue_name, durable=False)
     while True:  # Wait for broadcast
-        broadcast_queue_name = 'broadcast_queue'
         method_frame, header_frame, body = channel.basic_get(queue=broadcast_queue_name, auto_ack=True)
         if body:
             received_data = pickle.loads(body)

@@ -16,7 +16,7 @@ parser = argparse.ArgumentParser(description="Split learning framework")
 
 args = parser.parse_args()
 
-with open('../../config.yaml', 'r') as file:
+with open('config.yaml', 'r') as file:
     config = yaml.safe_load(file)
 
 layer_id = 2
