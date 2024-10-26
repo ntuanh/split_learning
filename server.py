@@ -223,7 +223,7 @@ def delete_old_queues():
 
 
 if __name__ == "__main__":
-    server = Server()
     delete_old_queues()
+    server = Server()
     server.start()
     print("Ok, ready!")

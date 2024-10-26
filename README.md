@@ -101,29 +101,53 @@ This configuration is use for server and all clients.
 
 Alter your configuration, you need to run the server to listen and control the request from clients.
 
-### Server
+### SL mode
+
+#### Server
 ```commandline
 python server.py
 ```
 
-### Client
+#### Client
 
 Now, when server is ready, run clients simultaneously with total number of client that you defined.
 
-#### Layer 1
+**Layer 1**
 ```commandline
 python client_layers_1.py
 ```
 
-#### Layer 2
+**Layer 2**
 ```commandline
 python client_layers_2.py
 ```
 
-#### Layer 3
+**Layer 3**
 ```commandline
 python client_layers_3.py
 ```
+
+### FL mode
+
+In FL mode, you only need to configure the number of clients in a single row with the corresponding amount in the `config.yaml` file.
+
+```yaml
+server:
+  num-round: 1  # number of training rounds
+  clients:  # 3 clients run FL
+    - 3
+```
+
+Then run
+
+```commandline
+python server.py
+```
+
+```commandline
+python client.py
+```
+
 
 ## Parameter Files
 
