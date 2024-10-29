@@ -6,10 +6,12 @@ import sys
 import yaml
 
 import torch
-
 import requests
-from requests.auth import HTTPBasicAuth
+
 import src.Model
+import src.Log
+
+from requests.auth import HTTPBasicAuth
 
 parser = argparse.ArgumentParser(description="Split learning framework with controller.")
 
@@ -50,7 +52,7 @@ class Server:
 
         self.channel.basic_qos(prefetch_count=1)
         self.channel.basic_consume(queue='rpc_queue', on_message_callback=self.on_request)
-        print(f"Server is waiting for {self.total_clients} clients.")
+        src.Log.print_with_color(f"Server is waiting for {self.total_clients} clients.", "green")
 
     def on_request(self, ch, method, props, body):
         message = pickle.loads(body)
@@ -63,27 +65,27 @@ class Server:
             self.list_clients.append((str(client_id), layer_id))
 
         if action == "REGISTER":
-            print(f"Received message from client: {message}")
+            src.Log.print_with_color(f"[<<<] Received message from client: {message}", "blue")
             # Save messages from clients
             self.register_clients[layer_id - 1] += 1
 
             # If consumed all clients - Register for first time
             if self.register_clients == self.total_clients:
-                print("All clients are connected. Sending notifications.")
+                src.Log.print_with_color("All clients are connected. Sending notifications.", "green")
                 self.notify_clients(ch)
         elif action == "NOTIFY":
-            print(f"Received message from client: {message}")
+            src.Log.print_with_color(f"[<<<] Received message from client: {message}", "blue")
             if layer_id == 1:
                 self.first_layer_clients += 1
 
             if self.first_layer_clients == self.total_clients[0]:
                 self.first_layer_clients = 0
-                print("Received finish training notification")
+                src.Log.print_with_color("Received finish training notification", "yellow")
                 for _ in range(sum(self.total_clients)):
                     self.send_to_broadcast()
         elif action == "UPDATE":
             data_message = message["message"]
-            print(f"Received message from client: {data_message}")
+            src.Log.print_with_color(f"[<<<] Received message from client: {data_message}", "blue")
             # Save client's model parameters
             model_state_dict = message["parameters"]
             self.current_clients[layer_id - 1] += 1
@@ -91,7 +93,7 @@ class Server:
 
             # If consumed all client's parameters
             if self.current_clients == self.total_clients:
-                print("Collected all parameters.")
+                src.Log.print_with_color("Collected all parameters.", "yellow")
                 self.avg_all_parameters()
                 self.current_clients = [0 for _ in range(len(total_clients))]
                 self.all_model_parameters = [[] for _ in range(len(total_clients))]
@@ -118,15 +120,15 @@ class Server:
             if start:
                 if os.path.exists(filepath):
                     state_dict = torch.load(filepath, weights_only=False)
-                    print("Model loaded successfully.")
+                    src.Log.print_with_color("Model loaded successfully.", "green")
                 else:
-                    print(f"File {filepath} does not exist.")
+                    src.Log.print_with_color(f"File {filepath} does not exist.", "yellow")
 
                 response = {"action": "START",
                             "message": "Server accept the connection!",
                             "parameters": state_dict}
             else:
-                print("Send stop training to clients")
+                src.Log.print_with_color("[>>>] Send stop training to clients", "red")
                 response = {"action": "STOP",
                             "message": "Stop training!",
                             "parameters": None}
@@ -140,7 +142,7 @@ class Server:
         reply_queue_name = f'reply_{client_id}'
         reply_channel.queue_declare(reply_queue_name, durable=False)
 
-        print(f"Sent notification to client {client_id}")
+        src.Log.print_with_color(f"[>>>] Sent notification to client {client_id}", "red")
         reply_channel.basic_publish(
             exchange='',
             routing_key=reply_queue_name,
@@ -205,20 +207,20 @@ def delete_old_queues():
                     "gradient_queue"):
                 try:
                     http_channel.queue_delete(queue=queue_name)
-                    print(f"Queue '{queue_name}' deleted.")
+                    src.Log.print_with_color(f"Queue '{queue_name}' deleted.", "green")
                 except Exception as e:
-                    print(f"Failed to delete queue '{queue_name}': {e}")
+                    src.Log.print_with_color(f"Failed to delete queue '{queue_name}': {e}", "yellow")
             else:
                 try:
                     http_channel.queue_purge(queue=queue_name)
-                    print(f"Queue '{queue_name}' purged.")
+                    src.Log.print_with_color(f"Queue '{queue_name}' purged.", "green")
                 except Exception as e:
-                    print(f"Failed to purge queue '{queue_name}': {e}")
+                    src.Log.print_with_color(f"Failed to purge queue '{queue_name}': {e}", "yellow")
 
         connection.close()
         return True
     else:
-        print(f"Failed to fetch queues from RabbitMQ Management API. Status code: {response.status_code}")
+        src.Log.print_with_color(f"Failed to fetch queues from RabbitMQ Management API. Status code: {response.status_code}", "yellow")
         return False
 
 
@@ -226,4 +228,4 @@ if __name__ == "__main__":
     delete_old_queues()
     server = Server()
     server.start()
-    print("Ok, ready!")
+    src.Log.print_with_color("Ok, ready!", "green")

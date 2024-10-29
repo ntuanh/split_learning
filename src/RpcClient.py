@@ -1,6 +1,7 @@
 import time
 import pickle
 import pika
+import src.Log
 
 
 class RpcClient:
@@ -30,13 +31,12 @@ class RpcClient:
             reply_channel.queue_declare(reply_queue_name, durable=False)
             method_frame, header_frame, body = self.channel.basic_get(queue=reply_queue_name, auto_ack=True)
             if body:
-                # print(f"Received message from server {received_data}")
                 status = self.response_message(body)
             time.sleep(0.5)
 
     def response_message(self, body):
         self.response = pickle.loads(body)
-        print(f"Client received: {self.response['message']}")
+        src.Log.print_with_color(f"[<<<] Client received: {self.response['message']}", "blue")
         action = self.response["action"]
         parameters = self.response["parameters"]
 
