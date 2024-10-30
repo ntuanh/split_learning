@@ -48,7 +48,7 @@ criterion = nn.CrossEntropyLoss()
 credentials = pika.PlainCredentials(username, password)
 
 
-def train_on_device(trainloader):
+def train_on_device(trainloader, testloader):
     model.to(device)
     model.train()
     for (training_data, label) in tqdm(trainloader):
@@ -63,7 +63,7 @@ def train_on_device(trainloader):
     # Finish epoch training, send notify to server
     src.Log.print_with_color("[>>>] Finish training!", "red")
     training_data = {"action": "NOTIFY", "client_id": client_id, "layer_id": layer_id,
-                     "message": "Finish training!"}
+                     "message": "Finish training!", "validate": None}
     client.send_to_server(training_data)
 
     broadcast_queue_name = 'broadcast_queue'
@@ -104,15 +104,12 @@ if __name__ == "__main__":
     train_loader2 = torch.utils.data.DataLoader(subset2, batch_size=batch_size, shuffle=True)
     train_loader3 = torch.utils.data.DataLoader(subset3, batch_size=batch_size, shuffle=True)
 
-    # train_loader = torch.utils.data.DataLoader(
-    #     trainset, batch_size=batch_size, shuffle=True)
-
-    testset = torchvision.datasets.CIFAR10(
-        root='./data', train=False, download=True, transform=transform_test)
-    test_loader = torch.utils.data.DataLoader(
-        testset, batch_size=batch_size, shuffle=False)
+    # testset = torchvision.datasets.CIFAR10(
+    #     root='./data', train=False, download=True, transform=transform_test)
+    # test_loader = torch.utils.data.DataLoader(
+    #     testset, batch_size=batch_size, shuffle=False)
 
     data = {"action": "REGISTER", "client_id": client_id, "layer_id": layer_id, "message": "Hello from Client!"}
-    client = RpcClient(client_id, layer_id, model, address, username, password, train_on_device, train_loader1)
+    client = RpcClient(client_id, layer_id, model, address, username, password, train_on_device, train_loader1, None)
     client.send_to_server(data)
     client.wait_response()

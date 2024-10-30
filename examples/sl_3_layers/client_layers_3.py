@@ -53,7 +53,21 @@ def send_gradient(data_id, gradient, trace):
     backward_queue_name = f'gradient_queue_{layer_id - 1}_{to_client_id}'
     channel.queue_declare(queue=backward_queue_name, durable=False)
 
-    message = pickle.dumps({"data_id": data_id, "data": gradient.detach().cpu().numpy(), "trace": trace})
+    message = pickle.dumps({"data_id": data_id, "data": gradient.detach().cpu().numpy(), "trace": trace, "test": False})
+
+    channel.basic_publish(
+        exchange='',
+        routing_key=backward_queue_name,
+        body=message
+    )
+
+
+def send_validation(data_id, data, trace):
+    to_client_id = trace[0]
+    backward_queue_name = f'gradient_queue_1_{to_client_id}'
+    channel.queue_declare(queue=backward_queue_name, durable=False)
+
+    message = pickle.dumps({"data_id": data_id, "data": data, "trace": trace, "test": True})
 
     channel.basic_publish(
         exchange='',
@@ -80,19 +94,27 @@ def train_on_device():
             intermediate_output_numpy = received_data["data"]
             trace = received_data["trace"]
             data_id = received_data["data_id"]
-
             labels = received_data["label"].to(device)
+            test = received_data["test"]
+
             intermediate_output = torch.tensor(intermediate_output_numpy, requires_grad=True).to(device)
 
-            output = model(intermediate_output)
-            loss = criterion(output, labels)
-            print(f"Loss: {loss.item()}")
-            intermediate_output.retain_grad()
-            loss.backward()
-            optimizer.step()
+            if test:
+                output = model(intermediate_output)
+                labels = labels.cpu().numpy().flatten()
+                pred = output.data.max(1, keepdim=True)[1]
+                pred = pred.cpu().numpy().flatten()
+                send_validation(data_id, [labels, pred], trace)
+            else:
+                output = model(intermediate_output)
+                loss = criterion(output, labels)
+                print(f"Loss: {loss.item()}")
+                intermediate_output.retain_grad()
+                loss.backward()
+                optimizer.step()
 
-            gradient = intermediate_output.grad
-            send_gradient(data_id, gradient, trace)  # 1F1B
+                gradient = intermediate_output.grad
+                send_gradient(data_id, gradient, trace)  # 1F1B
         # Check training process
         else:
             broadcast_queue_name = 'broadcast_queue'

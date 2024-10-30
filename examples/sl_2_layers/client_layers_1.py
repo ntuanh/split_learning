@@ -3,6 +3,7 @@ import uuid
 import pickle
 import argparse
 import yaml
+import numpy as np
 from tqdm import tqdm
 
 import torch
@@ -27,9 +28,11 @@ client_id = uuid.uuid4()
 address = config["rabbit"]["address"]
 username = config["rabbit"]["username"]
 password = config["rabbit"]["password"]
+
 batch_size = config["learning"]["batch-size"]
 lr = config["learning"]["learning-rate"]
 control_count = config["learning"]["control-count"]
+validation = config["learning"]["validation"]
 
 device = None
 
@@ -48,12 +51,13 @@ connection = pika.BlockingConnection(pika.ConnectionParameters(address, 5672, '/
 channel = connection.channel()
 
 
-def send_intermediate_output(data_id, output, labels):
+def send_intermediate_output(data_id, output, labels, test=False):
     forward_queue_name = f'intermediate_queue_{layer_id}'
     channel.queue_declare(forward_queue_name, durable=False)
 
     message = pickle.dumps(
-        {"data_id": data_id, "data": output.detach().cpu().numpy(), "label": labels, "trace": [client_id]})
+        {"data_id": data_id, "data": output.detach().cpu().numpy(), "label": labels, "trace": [client_id], "test": test}
+    )
 
     channel.basic_publish(
         exchange='',
@@ -62,7 +66,7 @@ def send_intermediate_output(data_id, output, labels):
     )
 
 
-def train_on_device(trainloader):
+def train_on_device(trainloader, testloader=None):
     data_iter = iter(trainloader)
     backward_queue_name = f'gradient_queue_{layer_id}_{client_id}'
     channel.queue_declare(queue=backward_queue_name, durable=False)
@@ -113,20 +117,54 @@ def train_on_device(trainloader):
                 except StopIteration:
                     end_data = True
             if end_data and (num_forward == num_backward):
-                # Finish epoch training, send notify to server
-                src.Log.print_with_color("[>>>] Finish training!", "red")
-                training_data = {"action": "NOTIFY", "client_id": client_id, "layer_id": layer_id,
-                                 "message": "Finish training!"}
-                client.send_to_server(training_data)
-
-                while True:  # Wait for broadcast
-                    broadcast_queue_name = 'broadcast_queue'
-                    method_frame, header_frame, body = channel.basic_get(queue=broadcast_queue_name, auto_ack=True)
-                    if body:
-                        received_data = pickle.loads(body)
-                        src.Log.print_with_color(f"[<<<] Received message from server {received_data}", "blue")
-                        break
                 break
+
+    # validation
+    num_forward = 0
+    num_backward = 0
+    all_labels = np.array([])
+    all_vals = np.array([])
+    if testloader:
+        for (testing_data, labels) in testloader:
+            testing_data = testing_data.to(device)
+            data_id = uuid.uuid4()
+            intermediate_output = model(testing_data)
+
+            # Send to next layers
+            num_forward += 1
+
+            send_intermediate_output(data_id, intermediate_output, labels, test=True)
+
+        while True:
+            method_frame, header_frame, body = channel.basic_get(queue=backward_queue_name, auto_ack=True)
+            if method_frame and body:
+                num_backward += 1
+                received_data = pickle.loads(body)
+                test_data = received_data["data"]
+
+                all_labels = np.append(all_labels, test_data[0])
+                all_vals = np.append(all_vals, test_data[1])
+
+            if num_forward == num_backward:
+                break
+
+        notify_data = {"action": "NOTIFY", "client_id": client_id, "layer_id": layer_id,
+                       "message": "Finish training!", "validate": [all_labels, all_vals]}
+    else:
+        notify_data = {"action": "NOTIFY", "client_id": client_id, "layer_id": layer_id,
+                       "message": "Finish training!", "validate": None}
+
+    # Finish epoch training, send notify to server
+    src.Log.print_with_color("[>>>] Finish training!", "red")
+    client.send_to_server(notify_data)
+
+    while True:  # Wait for broadcast
+        broadcast_queue_name = 'broadcast_queue'
+        method_frame, header_frame, body = channel.basic_get(queue=broadcast_queue_name, auto_ack=True)
+        if body:
+            received_data = pickle.loads(body)
+            src.Log.print_with_color(f"[<<<] Received message from server {received_data}", "blue")
+            break
 
 
 if __name__ == "__main__":
@@ -149,12 +187,16 @@ if __name__ == "__main__":
     train_loader = torch.utils.data.DataLoader(
         trainset, batch_size=batch_size, shuffle=True)
 
-    testset = torchvision.datasets.CIFAR10(
-        root='./data', train=False, download=True, transform=transform_test)
-    test_loader = torch.utils.data.DataLoader(
-        testset, batch_size=batch_size, shuffle=False)
+    if validation:
+        testset = torchvision.datasets.CIFAR10(
+            root='./data', train=False, download=True, transform=transform_test)
+        test_loader = torch.utils.data.DataLoader(
+            testset, batch_size=batch_size, shuffle=False)
+    else:
+        test_loader = None
 
     data = {"action": "REGISTER", "client_id": client_id, "layer_id": layer_id, "message": "Hello from Client!"}
-    client = RpcClient(client_id, layer_id, model, address, username, password, train_on_device, train_loader)
+    client = RpcClient(client_id, layer_id, model, address, username, password, train_on_device, train_loader,
+                       test_loader)
     client.send_to_server(data)
     client.wait_response()

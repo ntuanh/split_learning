@@ -47,12 +47,14 @@ connection = pika.BlockingConnection(pika.ConnectionParameters(address, 5672, '/
 channel = connection.channel()
 
 
-def send_intermediate_output(data_id, output, labels, trace):
+def send_intermediate_output(data_id, output, labels, trace, test=False):
     forward_queue_name = f'intermediate_queue_{layer_id}'
     channel.queue_declare(forward_queue_name, durable=False)
     trace.append(client_id)
 
-    message = pickle.dumps({"data_id": data_id, "data": output.detach().cpu().numpy(), "label": labels, "trace": trace})
+    message = pickle.dumps(
+        {"data_id": data_id, "data": output.detach().cpu().numpy(), "label": labels, "trace": trace, "test": test}
+    )
 
     channel.basic_publish(
         exchange='',
@@ -113,6 +115,7 @@ def train_on_device():
                 intermediate_output_numpy = received_data["data"]
                 trace = received_data["trace"]
                 data_id = received_data["data_id"]
+                test = received_data["test"]
                 labels = received_data["label"].to(device)
 
                 intermediate_output = torch.tensor(intermediate_output_numpy, requires_grad=True).to(device)
@@ -121,7 +124,7 @@ def train_on_device():
                 output = model(intermediate_output)
                 output = output.detach().requires_grad_(True)
 
-                send_intermediate_output(data_id, output, labels, trace)
+                send_intermediate_output(data_id, output, labels, trace, test)
                 # speed control
                 if len(data_store) > control_count:
                     continue

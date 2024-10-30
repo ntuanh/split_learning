@@ -4,6 +4,7 @@ import pickle
 import argparse
 import sys
 import yaml
+import numpy as np
 
 import torch
 import requests
@@ -27,7 +28,10 @@ filename = config["server"]["filename"]
 address = config["rabbit"]["address"]
 username = config["rabbit"]["username"]
 password = config["rabbit"]["password"]
+
 num_round = config["server"]["num-round"]
+save_parameters = config["server"]["parameters"]["save"]
+load_parameters = config["server"]["parameters"]["load"]
 validation = config["server"]["validation"]
 
 
@@ -49,6 +53,8 @@ class Server:
         self.list_clients = []
 
         self.all_model_parameters = [[] for _ in range(len(total_clients))]
+        self.all_labels = np.array([])
+        self.all_vals = np.array([])
 
         self.channel.basic_qos(prefetch_count=1)
         self.channel.basic_consume(queue='rpc_queue', on_message_callback=self.on_request)
@@ -72,63 +78,84 @@ class Server:
             # If consumed all clients - Register for first time
             if self.register_clients == self.total_clients:
                 src.Log.print_with_color("All clients are connected. Sending notifications.", "green")
-                self.notify_clients(ch)
+                self.notify_clients()
         elif action == "NOTIFY":
             src.Log.print_with_color(f"[<<<] Received message from client: {message}", "blue")
             if layer_id == 1:
                 self.first_layer_clients += 1
+                validate = message["validate"]
+                if validate:
+                    self.all_labels = np.append(self.all_labels, validate[0])
+                    self.all_vals = np.append(self.all_vals, validate[1])
 
             if self.first_layer_clients == self.total_clients[0]:
                 self.first_layer_clients = 0
                 src.Log.print_with_color("Received finish training notification", "yellow")
+
+                if self.all_labels.size == self.all_vals.size and self.all_vals.size > 0:
+                    same_elements = np.sum(self.all_labels == self.all_vals)
+                    total_elements = self.all_vals.size
+                    accuracy = same_elements / total_elements
+                    src.Log.print_with_color("Inference test: Accuracy: ({:.0f}%)\n".format(100.0 * accuracy), "yellow")
+
+                    self.all_labels = np.array([])
+                    self.all_vals = np.array([])
+
                 for _ in range(sum(self.total_clients)):
                     self.send_to_broadcast()
         elif action == "UPDATE":
             data_message = message["message"]
             src.Log.print_with_color(f"[<<<] Received message from client: {data_message}", "blue")
-            # Save client's model parameters
-            model_state_dict = message["parameters"]
             self.current_clients[layer_id - 1] += 1
-            self.all_model_parameters[layer_id - 1].append(model_state_dict)
+            # Save client's model parameters
+            if save_parameters:
+                model_state_dict = message["parameters"]
+                self.all_model_parameters[layer_id - 1].append(model_state_dict)
 
             # If consumed all client's parameters
             if self.current_clients == self.total_clients:
                 src.Log.print_with_color("Collected all parameters.", "yellow")
-                self.avg_all_parameters()
+                if save_parameters:
+                    self.avg_all_parameters()
+                    self.all_model_parameters = [[] for _ in range(len(total_clients))]
                 self.current_clients = [0 for _ in range(len(total_clients))]
-                self.all_model_parameters = [[] for _ in range(len(total_clients))]
                 # Test
-                if validation:
+                if save_parameters and validation:
                     src.Model.test(filename, len(total_clients))
                 # Start a new training round
                 self.num_round -= 1
                 if self.num_round > 0:
-                    self.notify_clients(ch)
+                    if save_parameters:
+                        self.notify_clients()
+                    else:
+                        self.notify_clients(register=False)
                 else:
-                    self.notify_clients(ch, start=False)
+                    self.notify_clients(start=False)
                     sys.exit()
 
         # Ack the message
         ch.basic_ack(delivery_tag=method.delivery_tag)
 
-    def notify_clients(self, channel, start=True):
+    def notify_clients(self, start=True, register=True):
         # Send message to clients when consumed all clients
         for (client_id, layer_id) in self.list_clients:
             # Read parameters file
             filepath = f'{filename}_{layer_id}.pth'
             state_dict = None
             if start:
-                if os.path.exists(filepath):
-                    state_dict = torch.load(filepath, weights_only=False)
-                    src.Log.print_with_color("Model loaded successfully.", "green")
-                else:
-                    src.Log.print_with_color(f"File {filepath} does not exist.", "yellow")
+                if load_parameters and register:
+                    if os.path.exists(filepath):
+                        state_dict = torch.load(filepath, weights_only=False)
+                        src.Log.print_with_color("Model loaded successfully.", "green")
+                    else:
+                        src.Log.print_with_color(f"File {filepath} does not exist.", "yellow")
 
+                src.Log.print_with_color(f"[>>>] Sent start training request to client {client_id}", "red")
                 response = {"action": "START",
                             "message": "Server accept the connection!",
                             "parameters": state_dict}
             else:
-                src.Log.print_with_color("[>>>] Send stop training to clients", "red")
+                src.Log.print_with_color(f"[>>>] Sent stop training request to client {client_id}", "red")
                 response = {"action": "STOP",
                             "message": "Stop training!",
                             "parameters": None}

@@ -5,7 +5,7 @@ import src.Log
 
 
 class RpcClient:
-    def __init__(self, client_id, layer_id, model, address, username, password, train_func, train_data=None):
+    def __init__(self, client_id, layer_id, model, address, username, password, train_func, train_data=None, test_data=None):
         self.model = model
         self.client_id = client_id
         self.layer_id = layer_id
@@ -14,6 +14,7 @@ class RpcClient:
         self.password = password
         self.train_func = train_func
         self.train_data = train_data
+        self.test_data = test_data
 
         self.channel = None
         self.connection = None
@@ -47,7 +48,7 @@ class RpcClient:
                 self.model.load_state_dict(parameters)
             # Start training
             if self.layer_id == 1:
-                self.train_func(self.train_data)
+                self.train_func(self.train_data, self.test_data)
             else:
                 self.train_func()
             # Stop training, then send parameters to server

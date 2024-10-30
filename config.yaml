@@ -6,6 +6,9 @@ server:
     - 1
     - 1
   filename: resnet_model
+  parameters:
+    load: False
+    save: False
   validation: False
 
 rabbit:
@@ -18,3 +21,4 @@ learning:
   momentum: 1
   batch-size: 256
   control-count: 3
+  validation: False

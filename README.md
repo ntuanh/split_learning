@@ -81,7 +81,11 @@ server:   # server configuration
     - 2
     - 1
   filename: resnet_model  # *.pth file name to be saved
-  validation: True  # allow server to perform validation 
+  parameters:
+    load: False     # allow to load parameters file
+    save: False     # allow to save parameters file
+                    # if turn on, server will be averaging all parameters
+  validation: True  # allow to validate on server-side
 
 rabbit:   # RabbitMQ connection configuration
   address: 127.0.0.1    # address
@@ -93,6 +97,7 @@ learning:
   momentum: 1
   batch-size: 256
   control-count: 3    # control count on client
+  validation: False   # run validate on client side
 ```
 
 This configuration is use for server and all clients.
@@ -157,10 +162,11 @@ If the `*.pth` file exists, the server will read the file and send the parameter
 
 ---
 
+Version 1.2.0
+
 The application is under development...
 
 TODO:
-- Config with SL, FL mode
 - Package clients with first and last layers
 - Delete all queues alter finish
 - Package server class
