@@ -1,3 +1,4 @@
+import time
 import pika
 import uuid
 import pickle
@@ -158,13 +159,15 @@ def train_on_device(trainloader, testloader=None):
     src.Log.print_with_color("[>>>] Finish training!", "red")
     client.send_to_server(notify_data)
 
+    broadcast_queue_name = f'reply_{client_id}'
     while True:  # Wait for broadcast
-        broadcast_queue_name = 'broadcast_queue'
         method_frame, header_frame, body = channel.basic_get(queue=broadcast_queue_name, auto_ack=True)
         if body:
             received_data = pickle.loads(body)
             src.Log.print_with_color(f"[<<<] Received message from server {received_data}", "blue")
-            break
+            if received_data["action"] == "PAUSE":
+                break
+        time.sleep(0.5)
 
 
 if __name__ == "__main__":

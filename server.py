@@ -45,7 +45,6 @@ class Server:
         self.num_round = num_round
 
         self.channel.queue_declare(queue='rpc_queue')
-        self.channel.queue_declare('broadcast_queue', durable=False)
 
         self.total_clients = total_clients
         self.current_clients = [0 for _ in range(len(total_clients))]
@@ -106,8 +105,11 @@ class Server:
                     self.all_labels = np.array([])
                     self.all_vals = np.array([])
 
-                for _ in range(sum(self.total_clients)):
-                    self.send_to_broadcast()
+                for (client_id, layer_id) in self.list_clients:
+                    message = {"action": "PAUSE",
+                               "message": "Pause training and please send your parameters",
+                               "parameters": None}
+                    self.send_to_response(client_id, pickle.dumps(message))
         elif action == "UPDATE":
             data_message = message["message"]
             src.Log.print_with_color(f"[<<<] Received message from client: {data_message}", "blue")
@@ -181,20 +183,6 @@ class Server:
             body=message
         )
 
-    def send_to_broadcast(self):
-        broadcast_channel = self.connection.channel()
-        broadcast_queue_name = 'broadcast_queue'
-        broadcast_channel.queue_declare(broadcast_queue_name, durable=False)
-
-        message = pickle.dumps({"action": "STOP",
-                                "message": "Stop training and please send your parameters",
-                                "parameters": None})
-        broadcast_channel.basic_publish(
-            exchange='',
-            routing_key=broadcast_queue_name,
-            body=message
-        )
-
     def avg_all_parameters(self):
         # Average all client parameters
         for layer, state_dicts in enumerate(self.all_model_parameters):
@@ -252,7 +240,8 @@ def delete_old_queues():
         connection.close()
         return True
     else:
-        src.Log.print_with_color(f"Failed to fetch queues from RabbitMQ Management API. Status code: {response.status_code}", "yellow")
+        src.Log.print_with_color(
+            f"Failed to fetch queues from RabbitMQ Management API. Status code: {response.status_code}", "yellow")
         return False
 
 

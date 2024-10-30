@@ -117,12 +117,13 @@ def train_on_device():
                 send_gradient(data_id, gradient, trace)  # 1F1B
         # Check training process
         else:
-            broadcast_queue_name = 'broadcast_queue'
+            broadcast_queue_name = f'reply_{client_id}'
             method_frame, header_frame, body = channel.basic_get(queue=broadcast_queue_name, auto_ack=True)
             if body:
                 received_data = pickle.loads(body)
                 src.Log.print_with_color(f"[<<<] Received message from server {received_data}", "blue")
-                break
+                if received_data["action"] == "PAUSE":
+                    break
 
 
 if __name__ == "__main__":

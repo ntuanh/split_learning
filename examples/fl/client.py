@@ -1,3 +1,4 @@
+import time
 import pika
 import uuid
 import pickle
@@ -66,7 +67,7 @@ def train_on_device(trainloader, testloader):
                      "message": "Finish training!", "validate": None}
     client.send_to_server(training_data)
 
-    broadcast_queue_name = 'broadcast_queue'
+    broadcast_queue_name = f'reply_{client_id}'
     connection = pika.BlockingConnection(pika.ConnectionParameters(address, 5672, '/', credentials))
     channel = connection.channel()
     channel.queue_declare(queue=broadcast_queue_name, durable=False)
@@ -75,7 +76,9 @@ def train_on_device(trainloader, testloader):
         if body:
             received_data = pickle.loads(body)
             src.Log.print_with_color(f"[<<<] Received message from server {received_data}", "blue")
-            break
+            if received_data["action"] == "PAUSE":
+                break
+        time.sleep(0.5)
 
 
 if __name__ == "__main__":

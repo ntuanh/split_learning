@@ -164,7 +164,7 @@ If the `*.pth` file exists, the server will read the file and send the parameter
 
 ---
 
-Version 1.2.0
+Version 1.3.1
 
 The application is under development...
 
