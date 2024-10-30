@@ -10,6 +10,7 @@ import torch.optim as optim
 import torchvision
 import torchvision.transforms as transforms
 
+import src.Log
 from src.RpcClient import RpcClient
 from Model import ModelPart1
 
@@ -113,7 +114,7 @@ def train_on_device(trainloader):
                     end_data = True
             if end_data and (num_forward == num_backward):
                 # Finish epoch training, send notify to server
-                print("Finish training!")
+                src.Log.print_with_color("[>>>] Finish training!", "red")
                 training_data = {"action": "NOTIFY", "client_id": client_id, "layer_id": layer_id,
                                  "message": "Finish training!"}
                 client.send_to_server(training_data)
@@ -123,13 +124,13 @@ def train_on_device(trainloader):
                     method_frame, header_frame, body = channel.basic_get(queue=broadcast_queue_name, auto_ack=True)
                     if body:
                         received_data = pickle.loads(body)
-                        print(f"Received message from server {received_data}")
+                        src.Log.print_with_color(f"[<<<] Received message from server {received_data}", "blue")
                         break
                 break
 
 
 if __name__ == "__main__":
-    print("Client sending registration message to server...")
+    src.Log.print_with_color("[>>>] Client sending registration message to server...", "red")
     # Read and load dataset
     transform_train = transforms.Compose([
         transforms.RandomCrop(32, padding=4),

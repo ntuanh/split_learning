@@ -8,6 +8,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
+import src.Log
 from src.RpcClient import RpcClient
 from Model import ModelPart2
 
@@ -98,12 +99,12 @@ def train_on_device():
             method_frame, header_frame, body = channel.basic_get(queue=broadcast_queue_name, auto_ack=True)
             if body:
                 received_data = pickle.loads(body)
-                print(f"Received message from server {received_data}")
+                src.Log.print_with_color(f"[<<<] Received message from server {received_data}", "blue")
                 break
 
 
 if __name__ == "__main__":
-    print("Client sending registration message to server...")
+    src.Log.print_with_color("[>>>] Client sending registration message to server...", "red")
     data = {"action": "REGISTER", "client_id": client_id, "layer_id": layer_id, "message": "Hello from Client!"}
     client = RpcClient(client_id, layer_id, model, address, username, password, train_on_device)
     client.send_to_server(data)
