@@ -3,7 +3,9 @@ import uuid
 import pickle
 import argparse
 import yaml
+import random
 from tqdm import tqdm
+from collections import defaultdict
 
 import torch
 import torch.nn as nn
@@ -96,16 +98,22 @@ if __name__ == "__main__":
     trainset = torchvision.datasets.CIFAR10(
         root='./data', train=True, download=True, transform=transform_train)
 
-    lengths = [len(trainset) // 3] * 3
-    lengths[2] += len(trainset) - sum(lengths)
-    subset1, subset2, subset3 = torch.utils.data.random_split(trainset, lengths)
+    # number of labels
+    label_counts = [50, 50, 50, 50, 50, 50, 50, 50, 50, 50]
 
-    train_loader1 = torch.utils.data.DataLoader(subset1, batch_size=batch_size, shuffle=True)
-    train_loader2 = torch.utils.data.DataLoader(subset2, batch_size=batch_size, shuffle=True)
-    train_loader3 = torch.utils.data.DataLoader(subset3, batch_size=batch_size, shuffle=True)
+    label_to_indices = defaultdict(list)
+    for idx, (_, label) in enumerate(trainset):
+        label_to_indices[label].append(idx)
 
-    # train_loader = torch.utils.data.DataLoader(
-    #     trainset, batch_size=batch_size, shuffle=True)
+    selected_indices = []
+    for label, count in enumerate(label_counts):
+        selected_indices.extend(random.sample(label_to_indices[label], count))
+
+    # Tạo tập con từ các chỉ số đã chọn
+    subset = torch.utils.data.Subset(trainset, selected_indices)
+
+    train_loader = torch.utils.data.DataLoader(
+        subset, batch_size=batch_size, shuffle=True)
 
     testset = torchvision.datasets.CIFAR10(
         root='./data', train=False, download=True, transform=transform_test)
@@ -113,6 +121,6 @@ if __name__ == "__main__":
         testset, batch_size=batch_size, shuffle=False)
 
     data = {"action": "REGISTER", "client_id": client_id, "layer_id": layer_id, "message": "Hello from Client!"}
-    client = RpcClient(client_id, layer_id, model, address, username, password, train_on_device, train_loader1)
+    client = RpcClient(client_id, layer_id, model, address, username, password, train_on_device, train_loader)
     client.send_to_server(data)
     client.wait_response()
