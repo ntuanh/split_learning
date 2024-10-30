@@ -11,10 +11,13 @@ server:
     save: False
   validation: False
 
+
 rabbit:
   address: 127.0.0.1
   username: admin
   password: admin
+
+log_path: .
 
 learning:
   learning-rate: 0.01

@@ -34,6 +34,8 @@ save_parameters = config["server"]["parameters"]["save"]
 load_parameters = config["server"]["parameters"]["load"]
 validation = config["server"]["validation"]
 
+log_path = config["log_path"]
+
 
 class Server:
     def __init__(self):
@@ -58,6 +60,8 @@ class Server:
 
         self.channel.basic_qos(prefetch_count=1)
         self.channel.basic_consume(queue='rpc_queue', on_message_callback=self.on_request)
+        self.logger = src.Log.Logger(f"{log_path}/app.log")
+        self.logger.log_info("Application start")
         src.Log.print_with_color(f"Server is waiting for {self.total_clients} clients.", "green")
 
     def on_request(self, ch, method, props, body):
@@ -97,6 +101,7 @@ class Server:
                     total_elements = self.all_vals.size
                     accuracy = same_elements / total_elements
                     src.Log.print_with_color("Inference test: Accuracy: ({:.0f}%)\n".format(100.0 * accuracy), "yellow")
+                    self.logger.log_info("Inference test: Accuracy: ({:.0f}%)\n".format(100.0 * accuracy))
 
                     self.all_labels = np.array([])
                     self.all_vals = np.array([])

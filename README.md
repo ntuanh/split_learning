@@ -92,6 +92,8 @@ rabbit:   # RabbitMQ connection configuration
   username: admin
   password: admin
 
+log_path: .   # logging directory
+
 learning:
   learning-rate: 0.01
   momentum: 1
