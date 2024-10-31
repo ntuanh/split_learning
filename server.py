@@ -99,8 +99,8 @@ class Server:
                     same_elements = np.sum(self.all_labels == self.all_vals)
                     total_elements = self.all_vals.size
                     accuracy = same_elements / total_elements
-                    src.Log.print_with_color("Inference test: Accuracy: ({:.0f}%)\n".format(100.0 * accuracy), "yellow")
-                    self.logger.log_info("Inference test: Accuracy: ({:.0f}%)\n".format(100.0 * accuracy))
+                    src.Log.print_with_color("Inference test: Accuracy: ({:.0f}%)".format(100.0 * accuracy), "yellow")
+                    self.logger.log_info("Inference test: Accuracy: ({:.0f}%)".format(100.0 * accuracy))
 
                     self.all_labels = np.array([])
                     self.all_vals = np.array([])
