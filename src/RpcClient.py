@@ -24,12 +24,9 @@ class RpcClient:
 
     def wait_response(self):
         status = True
+        reply_queue_name = f'reply_{self.client_id}'
+        self.channel.queue_declare(reply_queue_name, durable=False)
         while status:
-            credentials = pika.PlainCredentials(self.username, self.password)
-            reply_connection = pika.BlockingConnection(pika.ConnectionParameters(self.address, 5672, '/', credentials))
-            reply_channel = reply_connection.channel()
-            reply_queue_name = f'reply_{self.client_id}'
-            reply_channel.queue_declare(reply_queue_name, durable=False)
             method_frame, header_frame, body = self.channel.basic_get(queue=reply_queue_name, auto_ack=True)
             if body:
                 status = self.response_message(body)
@@ -55,7 +52,8 @@ class RpcClient:
             self.model.to("cpu")
             model_state_dict = self.model.state_dict()
             data = {"action": "UPDATE", "client_id": self.client_id, "layer_id": self.layer_id,
-                    "message": "Send parameters to Server", "parameters": model_state_dict}
+                    "message": "Sent parameters to Server", "parameters": model_state_dict}
+            src.Log.print_with_color("[>>>] Client sent parameters to server", "red")
             self.send_to_server(data)
             return True
         elif action == "STOP":
