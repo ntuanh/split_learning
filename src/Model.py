@@ -168,7 +168,7 @@ test_loader = torch.utils.data.DataLoader(
     testset, batch_size=100, shuffle=False, num_workers=2)
 
 
-def test(filename, num_client):
+def test(filename):
     full_model = FullModel()
 
     part1_state_dict = torch.load(f'{filename}_1.pth', weights_only=False)

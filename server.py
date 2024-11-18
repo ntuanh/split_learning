@@ -23,12 +23,13 @@ args = parser.parse_args()
 with open('config.yaml', 'r') as file:
     config = yaml.safe_load(file)
 
-total_clients = config["server"]["clients"]
-filename = config["server"]["filename"]
 address = config["rabbit"]["address"]
 username = config["rabbit"]["username"]
 password = config["rabbit"]["password"]
 
+filename = config["server"]["filename"]
+total_clients = config["server"]["clients"]
+cut_layers = config["server"]["cut_layers"]
 num_round = config["server"]["num-round"]
 save_parameters = config["server"]["parameters"]["save"]
 load_parameters = config["server"]["parameters"]["load"]
@@ -47,13 +48,13 @@ class Server:
         self.channel.queue_declare(queue='rpc_queue')
 
         self.total_clients = total_clients
-        self.current_clients = [0 for _ in range(len(total_clients))]
-        self.register_clients = [0 for _ in range(len(total_clients))]
+        self.current_clients = [0 for _ in range(len(self.total_clients))]
+        self.register_clients = [0 for _ in range(len(self.total_clients))]
         self.first_layer_clients = 0
         self.responses = {}  # Save response
         self.list_clients = []
 
-        self.all_model_parameters = [[] for _ in range(len(total_clients))]
+        self.all_model_parameters = [[] for _ in range(len(self.total_clients))]
         self.all_labels = np.array([])
         self.all_vals = np.array([])
 
@@ -128,7 +129,7 @@ class Server:
                 self.current_clients = [0 for _ in range(len(total_clients))]
                 # Test
                 if save_parameters and validation:
-                    src.Model.test(filename, len(total_clients))
+                    src.Model.test(filename)
                 # Start a new training round
                 self.num_round -= 1
                 if self.num_round > 0:
@@ -149,7 +150,15 @@ class Server:
             # Read parameters file
             filepath = f'{filename}_{layer_id}.pth'
             state_dict = None
+
             if start:
+                if layer_id == 1:
+                    layers = [0, cut_layers[0]]
+                elif layer_id == len(self.total_clients):
+                    layers = [cut_layers[-1], -1]
+                else:
+                    layers = [cut_layers[layer_id - 2], cut_layers[layer_id - 1]]
+
                 if load_parameters and register:
                     if os.path.exists(filepath):
                         state_dict = torch.load(filepath, weights_only=False)
@@ -160,7 +169,8 @@ class Server:
                 src.Log.print_with_color(f"[>>>] Sent start training request to client {client_id}", "red")
                 response = {"action": "START",
                             "message": "Server accept the connection!",
-                            "parameters": state_dict}
+                            "parameters": state_dict,
+                            "layers": layers}
             else:
                 src.Log.print_with_color(f"[>>>] Sent stop training request to client {client_id}", "red")
                 response = {"action": "STOP",
