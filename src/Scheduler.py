@@ -26,6 +26,7 @@ class Scheduler:
         self.channel.queue_declare(forward_queue_name, durable=False)
 
         if trace:
+            trace.append(self.client_id)
             message = pickle.dumps(
                 {"data_id": data_id, "data": output.detach().cpu().numpy(), "label": labels, "trace": trace,
                  "test": test}
