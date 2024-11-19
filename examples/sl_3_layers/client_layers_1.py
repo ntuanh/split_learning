@@ -30,11 +30,6 @@ address = config["rabbit"]["address"]
 username = config["rabbit"]["username"]
 password = config["rabbit"]["password"]
 
-batch_size = config["learning"]["batch-size"]
-lr = config["learning"]["learning-rate"]
-control_count = config["learning"]["control-count"]
-validation = config["learning"]["validation"]
-
 device = None
 
 if torch.cuda.is_available():
@@ -64,9 +59,36 @@ def send_intermediate_output(data_id, output, labels, test=False):
     )
 
 
-def train_on_device(model, trainloader, testloader=None):
-    optimizer = optim.SGD(model.parameters(), lr=lr)
-    data_iter = iter(trainloader)
+def train_on_device(model, control_count, batch_size, lr, momentum, validation):
+    # Read and load dataset
+    transform_train = transforms.Compose([
+        transforms.RandomCrop(32, padding=4),
+        transforms.RandomHorizontalFlip(),
+        transforms.ToTensor(),
+        transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+    ])
+
+    transform_test = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+    ])
+
+    trainset = torchvision.datasets.CIFAR10(
+        root='./data', train=True, download=True, transform=transform_train)
+    train_loader = torch.utils.data.DataLoader(
+        trainset, batch_size=batch_size, shuffle=True)
+
+    if validation:
+        testset = torchvision.datasets.CIFAR10(
+            root='./data', train=False, download=True, transform=transform_test)
+        test_loader = torch.utils.data.DataLoader(
+            testset, batch_size=batch_size, shuffle=False)
+    else:
+        test_loader = None
+
+    optimizer = optim.SGD(model.parameters(), lr=lr, momentum=momentum)
+    data_iter = iter(train_loader)
+
     backward_queue_name = f'gradient_queue_{layer_id}_{client_id}'
     channel.queue_declare(queue=backward_queue_name, durable=False)
     channel.basic_qos(prefetch_count=10)
@@ -74,8 +96,9 @@ def train_on_device(model, trainloader, testloader=None):
     num_backward = 0
     end_data = False
     data_store = {}
+
     model.to(device)
-    with tqdm(total=len(trainloader), desc="Processing", unit="step") as pbar:
+    with tqdm(total=len(train_loader), desc="Processing", unit="step") as pbar:
         while True:
             # Training model
             model.train()
@@ -123,8 +146,8 @@ def train_on_device(model, trainloader, testloader=None):
         num_backward = 0
         all_labels = np.array([])
         all_vals = np.array([])
-        if testloader:
-            for (testing_data, labels) in testloader:
+        if test_loader:
+            for (testing_data, labels) in test_loader:
                 testing_data = testing_data.to(device)
                 data_id = uuid.uuid4()
                 intermediate_output = model(testing_data)
@@ -170,34 +193,8 @@ def train_on_device(model, trainloader, testloader=None):
 
 if __name__ == "__main__":
     src.Log.print_with_color("[>>>] Client sending registration message to server...", "red")
-    # Read and load dataset
-    transform_train = transforms.Compose([
-        transforms.RandomCrop(32, padding=4),
-        transforms.RandomHorizontalFlip(),
-        transforms.ToTensor(),
-        transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
-    ])
-
-    transform_test = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
-    ])
-
-    trainset = torchvision.datasets.CIFAR10(
-        root='./data', train=True, download=True, transform=transform_train)
-    train_loader = torch.utils.data.DataLoader(
-        trainset, batch_size=batch_size, shuffle=True)
-
-    if validation:
-        testset = torchvision.datasets.CIFAR10(
-            root='./data', train=False, download=True, transform=transform_test)
-        test_loader = torch.utils.data.DataLoader(
-            testset, batch_size=batch_size, shuffle=False)
-    else:
-        test_loader = None
 
     data = {"action": "REGISTER", "client_id": client_id, "layer_id": layer_id, "message": "Hello from Client!"}
-    client = RpcClient(client_id, layer_id, address, username, password, train_on_device, train_loader,
-                       test_loader)
+    client = RpcClient(client_id, layer_id, address, username, password, train_on_device)
     client.send_to_server(data)
     client.wait_response()

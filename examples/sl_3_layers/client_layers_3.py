@@ -24,9 +24,6 @@ client_id = uuid.uuid4()
 address = config["rabbit"]["address"]
 username = config["rabbit"]["username"]
 password = config["rabbit"]["password"]
-batch_size = config["learning"]["batch-size"]
-lr = config["learning"]["learning-rate"]
-control_count = config["learning"]["control-count"]
 
 device = None
 
@@ -71,8 +68,9 @@ def send_validation(data_id, data, trace):
     )
 
 
-def train_on_device(model):
-    optimizer = optim.SGD(model.parameters(), lr=lr)
+def train_on_device(model, control_count, batch_size, lr, momentum, validation):
+    optimizer = optim.SGD(model.parameters(), lr=lr, momentum=momentum)
+
     criterion = nn.CrossEntropyLoss()
     forward_queue_name = f'intermediate_queue_{layer_id - 1}'
     channel.queue_declare(queue=forward_queue_name, durable=False)

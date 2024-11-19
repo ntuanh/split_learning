@@ -27,7 +27,7 @@ address = config["rabbit"]["address"]
 username = config["rabbit"]["username"]
 password = config["rabbit"]["password"]
 
-filename = config["server"]["filename"]
+model_name = config["server"]["model"]
 total_clients = config["server"]["clients"]
 cut_layers = config["server"]["cut_layers"]
 num_round = config["server"]["num-round"]
@@ -39,6 +39,7 @@ validation = config["server"]["validation"]
 batch_size = config["learning"]["batch-size"]
 lr = config["learning"]["learning-rate"]
 momentum = config["learning"]["momentum"]
+control_count = config["learning"]["control-count"]
 
 log_path = config["log_path"]
 
@@ -136,7 +137,7 @@ class Server:
                 self.current_clients = [0 for _ in range(len(total_clients))]
                 # Test
                 if save_parameters and validation:
-                    test(full_model, cut_layers, filename)
+                    test(full_model, cut_layers, model_name)
                 # Start a new training round
                 self.num_round -= 1
                 if self.num_round > 0:
@@ -155,7 +156,7 @@ class Server:
         # Send message to clients when consumed all clients
         for (client_id, layer_id) in self.list_clients:
             # Read parameters file
-            filepath = f'{filename}_{layer_id}.pth'
+            filepath = f'{model_name}_{layer_id}.pth'
             state_dict = None
 
             if start:
@@ -178,9 +179,11 @@ class Server:
                             "message": "Server accept the connection!",
                             "parameters": state_dict,
                             "layers": layers,
+                            "control_count": control_count,
                             "batch_size": batch_size,
                             "lr": lr,
-                            "momentum": momentum}
+                            "momentum": momentum,
+                            "validation": validation}
             else:
                 src.Log.print_with_color(f"[>>>] Sent stop training request to client {client_id}", "red")
                 response = {"action": "STOP",
@@ -227,7 +230,7 @@ class Server:
                     avg_state_dict[key] = avg_state_dict[key].long()
 
             # Save to files
-            torch.save(avg_state_dict, f'{filename}_{layer + 1}.pth')
+            torch.save(avg_state_dict, f'{model_name}_{layer + 1}.pth')
 
 
 def delete_old_queues():

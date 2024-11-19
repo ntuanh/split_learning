@@ -8,7 +8,7 @@ server:
     - 1
     - 1
     - 1
-  filename: resnet_model
+  model: VGG16
   parameters:
     load: False
     save: False
@@ -24,7 +24,7 @@ log_path: .
 
 learning:
   learning-rate: 0.01
-  momentum: 1
-  batch-size: 256
+  momentum: 0.5
+  batch-size: 128
   control-count: 3
   validation: False

@@ -10,7 +10,7 @@ full_model = VGG16()
 
 
 class RpcClient:
-    def __init__(self, client_id, layer_id, address, username, password, train_func, train_data=None, test_data=None):
+    def __init__(self, client_id, layer_id, address, username, password, train_func):
         # self.model = model
         self.client_id = client_id
         self.layer_id = layer_id
@@ -18,8 +18,6 @@ class RpcClient:
         self.username = username
         self.password = password
         self.train_func = train_func
-        self.train_data = train_data
-        self.test_data = test_data
 
         self.channel = None
         self.connection = None
@@ -61,12 +59,11 @@ class RpcClient:
             batch_size = self.response["batch_size"]
             lr = self.response["lr"]
             momentum = self.response["momentum"]
+            validation = self.response["validation"]
+            control_count = self.response["control_count"]
 
             # Start training
-            if self.layer_id == 1:
-                self.train_func(self.model, self.train_data, self.test_data)
-            else:
-                self.train_func(self.model)
+            self.train_func(self.model, control_count, batch_size, lr, momentum, validation)
             # Stop training, then send parameters to server
             self.model.to("cpu")
             model_state_dict = self.model.state_dict()
