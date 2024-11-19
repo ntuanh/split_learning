@@ -127,6 +127,10 @@ Now, when server is ready, run clients simultaneously with total number of clien
 python client.py --layer_id 1 --num_layers 3
 ```
 
+Where:
+- `--layer_id` is the ID index of client's layer, start from 1.
+- `--num_layers` is the total number of clients.
+
 ## Parameter Files
 
 On the server, the `*.pth` files are saved in the main execution directory of `server.py` after completing one training round.
@@ -135,13 +139,11 @@ If the `*.pth` file exists, the server will read the file and send the parameter
 
 ---
 
-Version 1.4.0
+Version 1.5.1
 
 The application is under development...
 
 TODO:
-- Package clients with first and last layers
 - Delete all queues alter finish
 - Package server class
-- Global config file
 - Create close connection request
