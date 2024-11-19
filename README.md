@@ -76,11 +76,14 @@ Application configuration is in the `config.yaml` file:
 name: Split Learning
 server:   # server configuration
   num-round: 1  # number of training rounds
+  cut_layers:   # index of cutting layers 
+    - 10
+    - 20
   clients:  # Layer 1 has 3 clients, layer 2 has 2 clients, layer 3 has 1 client
     - 3
     - 2
     - 1
-  filename: resnet_model  # *.pth file name to be saved
+  model: VGG16      # model name
   parameters:
     load: False     # allow to load parameters file
     save: False     # allow to save parameters file
@@ -96,7 +99,7 @@ log_path: .   # logging directory
 
 learning:
   learning-rate: 0.01
-  momentum: 1
+  momentum: 0.5
   batch-size: 256
   control-count: 3    # control count on client
   validation: False   # run validate on client side
@@ -121,40 +124,8 @@ Now, when server is ready, run clients simultaneously with total number of clien
 
 **Layer 1**
 ```commandline
-python client_layers_1.py
+python client.py --layer_id 1 --num_layers 3
 ```
-
-**Layer 2**
-```commandline
-python client_layers_2.py
-```
-
-**Layer 3**
-```commandline
-python client_layers_3.py
-```
-
-### FL mode
-
-In FL mode, you only need to configure the number of clients in a single row with the corresponding amount in the `config.yaml` file.
-
-```yaml
-server:
-  num-round: 1  # number of training rounds
-  clients:  # 3 clients run FL
-    - 3
-```
-
-Then run
-
-```commandline
-python server.py
-```
-
-```commandline
-python client.py
-```
-
 
 ## Parameter Files
 
@@ -164,7 +135,7 @@ If the `*.pth` file exists, the server will read the file and send the parameter
 
 ---
 
-Version 1.3.1
+Version 1.4.0
 
 The application is under development...
 
