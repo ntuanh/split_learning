@@ -1,9 +1,6 @@
 import time
-import pika
 import uuid
 import pickle
-import argparse
-import yaml
 import numpy as np
 from tqdm import tqdm
 
@@ -24,14 +21,20 @@ class Scheduler:
         self.device = device
         self.num_devices = num_layers
 
-    def send_intermediate_output(self, data_id, output, labels, test=False):
+    def send_intermediate_output(self, data_id, output, labels, trace, test=False):
         forward_queue_name = f'intermediate_queue_{self.layer_id}'
         self.channel.queue_declare(forward_queue_name, durable=False)
 
-        message = pickle.dumps(
-            {"data_id": data_id, "data": output.detach().cpu().numpy(), "label": labels, "trace": [self.client_id],
-             "test": test}
-        )
+        if trace:
+            message = pickle.dumps(
+                {"data_id": data_id, "data": output.detach().cpu().numpy(), "label": labels, "trace": trace,
+                 "test": test}
+            )
+        else:
+            message = pickle.dumps(
+                {"data_id": data_id, "data": output.detach().cpu().numpy(), "label": labels, "trace": [self.client_id],
+                 "test": test}
+            )
 
         self.channel.basic_publish(
             exchange='',
@@ -66,6 +69,12 @@ class Scheduler:
             routing_key=backward_queue_name,
             body=message
         )
+
+    def send_to_server(self, message):
+        self.channel.queue_declare('rpc_queue', durable=False)
+        self.channel.basic_publish(exchange='',
+                                   routing_key='rpc_queue',
+                                   body=pickle.dumps(message))
 
     def train_on_first_layer(self, model, control_count, batch_size, lr, momentum, validation):
         # Read and load dataset
@@ -142,7 +151,7 @@ class Scheduler:
                         # tqdm bar
                         pbar.update(1)
 
-                        self.send_intermediate_output(data_id, intermediate_output, labels)
+                        self.send_intermediate_output(data_id, intermediate_output, labels, None)
 
                     except StopIteration:
                         end_data = True
@@ -163,7 +172,7 @@ class Scheduler:
                     # Send to next layers
                     num_forward += 1
 
-                    self.send_intermediate_output(data_id, intermediate_output, labels, test=True)
+                    self.send_intermediate_output(data_id, intermediate_output, labels, None)
 
                 while True:
                     method_frame, header_frame, body = self.channel.basic_get(queue=backward_queue_name, auto_ack=True)
@@ -186,7 +195,7 @@ class Scheduler:
 
         # Finish epoch training, send notify to server
         src.Log.print_with_color("[>>>] Finish training!", "red")
-        self.client.send_to_server(notify_data)
+        self.send_to_server(notify_data)
 
         broadcast_queue_name = f'reply_{self.client_id}'
         while True:  # Wait for broadcast
