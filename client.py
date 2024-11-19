@@ -19,8 +19,6 @@ args = parser.parse_args()
 with open('config.yaml', 'r') as file:
     config = yaml.safe_load(file)
 
-layer_id = args["layer_id"]
-num_layers = args["num_layers"]
 
 client_id = uuid.uuid4()
 address = config["rabbit"]["address"]
@@ -43,8 +41,8 @@ channel = connection.channel()
 
 if __name__ == "__main__":
     src.Log.print_with_color("[>>>] Client sending registration message to server...", "red")
-    data = {"action": "REGISTER", "client_id": client_id, "layer_id": layer_id, "message": "Hello from Client!"}
-    scheduler = Scheduler(client_id, layer_id, channel, device, num_layers)
-    client = RpcClient(client_id, layer_id, address, username, password, scheduler.train_on_device)
+    data = {"action": "REGISTER", "client_id": client_id, "layer_id": args.layer_id, "message": "Hello from Client!"}
+    scheduler = Scheduler(client_id, args.layer_id, channel, device, args.num_layers)
+    client = RpcClient(client_id, args.layer_id, address, username, password, scheduler.train_on_device)
     client.send_to_server(data)
     client.wait_response()
