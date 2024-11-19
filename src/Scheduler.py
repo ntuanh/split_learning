@@ -312,9 +312,9 @@ class Scheduler:
                         break
 
     def train_on_device(self, model, control_count, batch_size, lr, momentum, validation):
-        if self.device == 1:
+        if self.layer_id == 1:
             self.train_on_first_layer(model, control_count, batch_size, lr, momentum, validation)
-        elif self.device == self.num_devices:
-            self.train_on_last_layer(model, control_count, lr, momentum)
+        elif self.layer_id == self.num_devices:
+            self.train_on_last_layer(model, lr, momentum)
         else:
             self.train_on_middle_layer(model, control_count, lr, momentum)
