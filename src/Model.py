@@ -1,160 +1,136 @@
 import torch
 import torch.nn as nn
+from tqdm import tqdm
+
 import torchvision
 import torchvision.transforms as transforms
 import torch.nn.functional as F
 
+if torch.cuda.is_available():
+    device = "cuda"
+    print(f"Using device: {torch.cuda.get_device_name(device)}")
+else:
+    device = "cpu"
+    print(f"Using device: CPU")
 
-class Bottleneck(nn.Module):
-    expansion = 4
-
-    def __init__(self, in_channels, out_channels, i_downsample=None, stride=1):
-        super(Bottleneck, self).__init__()
-        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=1, padding=0)
-        self.batch_norm1 = nn.BatchNorm2d(out_channels)
-
-        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=stride, padding=1)
-        self.batch_norm2 = nn.BatchNorm2d(out_channels)
-
-        self.conv3 = nn.Conv2d(out_channels, out_channels * self.expansion, kernel_size=1, stride=1, padding=0)
-        self.batch_norm3 = nn.BatchNorm2d(out_channels * self.expansion)
-
-        self.i_downsample = i_downsample
-        self.stride = stride
-        self.relu = nn.ReLU()
-
-    def forward(self, x):
-        identity = x.clone()
-        x = self.relu(self.batch_norm1(self.conv1(x)))
-
-        x = self.relu(self.batch_norm2(self.conv2(x)))
-
-        x = self.conv3(x)
-        x = self.batch_norm3(x)
-
-        # downsample if needed
-        if self.i_downsample is not None:
-            identity = self.i_downsample(identity)
-        # add identity
-        x += identity
-        x = self.relu(x)
-
-        return x
+n_epochs = 5
+batch_size_train = 128
+batch_size_test = 100
+learning_rate = 0.01
+momentum = 0.5
+log_interval = 10
 
 
-def identity_layers(ResBlock, blocks, planes):
-    layers = []
-
-    for i in range(blocks - 1):
-        layers.append(ResBlock(planes * ResBlock.expansion, planes))
-
-    return nn.Sequential(*layers)
-
-
-class ModelPart1(nn.Module):
-    def __init__(self, num_channels=3):
-        super(ModelPart1, self).__init__()
-        self.conv1 = nn.Conv2d(num_channels, 64, kernel_size=7, stride=2, padding=3, bias=False)
-        self.batch_norm1 = nn.BatchNorm2d(64)
-        self.relu = nn.ReLU()
-        self.max_pool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-
-    def forward(self, x):
-        x = self.conv1(x)
-        x = self.batch_norm1(x)
-        x = self.relu(x)
-        x = self.max_pool(x)
-        return x
-
-
-class ModelPart2(nn.Module):
-    def __init__(self, ResBlock=Bottleneck, layer_list=None, num_classes=10):
-        super(ModelPart2, self).__init__()
-        if layer_list is None:
-            layer_list = [3, 4, 6, 3]
-        self.in_channels = 64
-
-        self.layer1 = self._make_layer(ResBlock, planes=64)
-        self.layer2 = identity_layers(ResBlock, layer_list[0], planes=64)
-        self.layer3 = self._make_layer(ResBlock, planes=128, stride=2)
-        self.layer4 = identity_layers(ResBlock, layer_list[1], planes=128)
-        self.layer5 = self._make_layer(ResBlock, planes=256, stride=2)
-
-    def _make_layer(self, ResBlock, planes, stride=1):
-        ii_downsample = None
-        layers = []
-
-        if stride != 1 or self.in_channels != planes * ResBlock.expansion:
-            ii_downsample = nn.Sequential(
-                nn.Conv2d(self.in_channels, planes * ResBlock.expansion, kernel_size=1, stride=stride),
-                nn.BatchNorm2d(planes * ResBlock.expansion)
-            )
-
-        layers.append(ResBlock(self.in_channels, planes, i_downsample=ii_downsample, stride=stride))
-        self.in_channels = planes * ResBlock.expansion
-
-        return nn.Sequential(*layers)
-
-    def forward(self, x):
-        x = self.layer1(x)
-        x = self.layer2(x)
-        x = self.layer3(x)
-        x = self.layer4(x)
-        x = self.layer5(x)
-        return x
-
-
-class ModelPart3(nn.Module):
-    def __init__(self, ResBlock=Bottleneck, layer_list=None, num_classes=10):
-        super(ModelPart3, self).__init__()
-        if layer_list is None:
-            layer_list = [3, 4, 6, 3]
-        self.in_channels = 1024
-
-        self.layer6 = identity_layers(ResBlock, layer_list[2], planes=256)
-        self.layer7 = self._make_layer(ResBlock, planes=512, stride=2)
-        self.layer8 = identity_layers(ResBlock, layer_list[3], planes=512)
-
-        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
-        self.fc = nn.Linear(512 * ResBlock.expansion, num_classes)
-
-    def _make_layer(self, ResBlock, planes, stride=1):
-        ii_downsample = None
-        layers = []
-
-        if stride != 1 or self.in_channels != planes * ResBlock.expansion:
-            ii_downsample = nn.Sequential(
-                nn.Conv2d(self.in_channels, planes * ResBlock.expansion, kernel_size=1, stride=stride),
-                nn.BatchNorm2d(planes * ResBlock.expansion)
-            )
-
-        layers.append(ResBlock(self.in_channels, planes, i_downsample=ii_downsample, stride=stride))
-        self.in_channels = planes * ResBlock.expansion
-
-        return nn.Sequential(*layers)
-
-    def forward(self, x):
-        x = self.layer6(x)
-        x = self.layer7(x)
-        x = self.layer8(x)
-        x = self.avgpool(x)
-        x = x.reshape(x.shape[0], -1)
-        x = self.fc(x)
-        return x
-
-
-class FullModel(nn.Module):
+class VGG16(torch.nn.Module):
     def __init__(self):
-        super(FullModel, self).__init__()
-        self.part1 = ModelPart1()
-        self.part2 = ModelPart2()
-        self.part3 = ModelPart3()
+        super(VGG16, self).__init__()
+        self.layer1 = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1)
+        self.layer2 = nn.BatchNorm2d(64)
+        self.layer3 = nn.ReLU()
+        self.layer4 = nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=1)
+        self.layer5 = nn.BatchNorm2d(64)
+        self.layer6 = nn.ReLU()
+        self.layer7 = nn.MaxPool2d(kernel_size=2, stride=2)
+        self.layer8 = nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1)
+        self.layer9 = nn.BatchNorm2d(128)
+        self.layer10 = nn.ReLU()
+        self.layer11 = nn.Conv2d(128, 128, kernel_size=3, stride=1, padding=1)
+        self.layer12 = nn.BatchNorm2d(128)
+        self.layer13 = nn.ReLU()
+        self.layer14 = nn.MaxPool2d(kernel_size=2, stride=2)
+        self.layer15 = nn.Conv2d(128, 256, kernel_size=3, stride=1, padding=1)
+        self.layer16 = nn.BatchNorm2d(256)
+        self.layer17 = nn.ReLU()
+        self.layer18 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)
+        self.layer19 = nn.BatchNorm2d(256)
+        self.layer20 = nn.ReLU()
+        self.layer21 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)
+        self.layer22 = nn.BatchNorm2d(256)
+        self.layer23 = nn.ReLU()
+        self.layer24 = nn.MaxPool2d(kernel_size=2, stride=2)
+        self.layer25 = nn.Conv2d(256, 512, kernel_size=3, stride=1, padding=1)
+        self.layer26 = nn.BatchNorm2d(512)
+        self.layer27 = nn.ReLU()
+        self.layer28 = nn.Conv2d(512, 512, kernel_size=3, stride=1, padding=1)
+        self.layer29 = nn.BatchNorm2d(512)
+        self.layer30 = nn.ReLU()
+        self.layer31 = nn.Conv2d(512, 512, kernel_size=3, stride=1, padding=1)
+        self.layer32 = nn.BatchNorm2d(512)
+        self.layer33 = nn.ReLU()
+        self.layer34 = nn.MaxPool2d(kernel_size=2, stride=2)
+        self.layer35 = nn.Conv2d(512, 512, kernel_size=3, stride=1, padding=1)
+        self.layer36 = nn.BatchNorm2d(512)
+        self.layer37 = nn.ReLU()
+        self.layer38 = nn.Conv2d(512, 512, kernel_size=3, stride=1, padding=1)
+        self.layer39 = nn.BatchNorm2d(512)
+        self.layer40 = nn.ReLU()
+        self.layer41 = nn.Conv2d(512, 512, kernel_size=3, stride=1, padding=1)
+        self.layer42 = nn.BatchNorm2d(512)
+        self.layer43 = nn.ReLU()
+        self.layer44 = nn.MaxPool2d(kernel_size=2, stride=2)
+        self.layer45 = nn.Flatten(1, -1)
+        self.layer46 = nn.Dropout(0.5)
+        self.layer47 = nn.Linear(1 * 1 * 512, 4096)
+        self.layer48 = nn.ReLU()
+        self.layer49 = nn.Dropout(0.5)
+        self.layer50 = nn.Linear(4096, 4096)
+        self.layer51 = nn.ReLU()
+        self.layer52 = nn.Linear(4096, 10)
 
-    def forward(self, x):
-        x = self.part1(x)
-        x = self.part2(x)
-        x = self.part3(x)
-        return x
+    def forward(self, input0):
+        out1 = self.layer1(input0)
+        out2 = self.layer2(out1)
+        out3 = self.layer3(out2)
+        out4 = self.layer4(out3)
+        out5 = self.layer5(out4)
+        out6 = self.layer6(out5)
+        out7 = self.layer7(out6)
+        out8 = self.layer8(out7)
+        out9 = self.layer9(out8)
+        out10 = self.layer10(out9)
+        out11 = self.layer11(out10)
+        out12 = self.layer12(out11)
+        out13 = self.layer13(out12)
+        out14 = self.layer14(out13)
+        out15 = self.layer15(out14)
+        out16 = self.layer16(out15)
+        out17 = self.layer17(out16)
+        out18 = self.layer18(out17)
+        out19 = self.layer19(out18)
+        out20 = self.layer20(out19)
+        out21 = self.layer21(out20)
+        out22 = self.layer22(out21)
+        out23 = self.layer23(out22)
+        out24 = self.layer24(out23)
+        out25 = self.layer25(out24)
+        out26 = self.layer26(out25)
+        out27 = self.layer27(out26)
+        out28 = self.layer28(out27)
+        out29 = self.layer29(out28)
+        out30 = self.layer30(out29)
+        out31 = self.layer31(out30)
+        out32 = self.layer32(out31)
+        out33 = self.layer33(out32)
+        out34 = self.layer34(out33)
+        out35 = self.layer35(out34)
+        out36 = self.layer36(out35)
+        out37 = self.layer37(out36)
+        out38 = self.layer38(out37)
+        out39 = self.layer39(out38)
+        out40 = self.layer40(out39)
+        out41 = self.layer41(out40)
+        out42 = self.layer42(out41)
+        out43 = self.layer43(out42)
+        out44 = self.layer44(out43)
+        out45 = self.layer45(out44)
+        out46 = self.layer46(out45)
+        out47 = self.layer47(out46)
+        out48 = self.layer48(out47)
+        out49 = self.layer49(out48)
+        out50 = self.layer50(out49)
+        out51 = self.layer51(out50)
+        out52 = self.layer52(out51)
+        return out52
 
 
 transform_test = transforms.Compose([
@@ -163,27 +139,40 @@ transform_test = transforms.Compose([
 ])
 
 testset = torchvision.datasets.CIFAR10(
-    root='./data', train=False, download=True, transform=transform_test)
+    root='./data', train=False, download=False, transform=transform_test)
 test_loader = torch.utils.data.DataLoader(
     testset, batch_size=100, shuffle=False, num_workers=2)
 
 
-def test(filename):
-    full_model = FullModel()
+class FullModel(nn.Module):
+    def __init__(self, model, cut_layers):
+        super(FullModel, self).__init__()
+        self.full_model = []
+        for i in range(len(cut_layers) + 1):
+            if i == 0:
+                self.full_model.append(nn.Sequential(*nn.ModuleList(model.children())[:cut_layers[0]]))
+            elif i == len(cut_layers):
+                self.full_model.append(nn.Sequential(*nn.ModuleList(model.children())[cut_layers[i - 1]:]))
+            else:
+                self.full_model.append(
+                    nn.Sequential(*nn.ModuleList(model.children())[cut_layers[i - 1]:cut_layers[i]]))
 
-    part1_state_dict = torch.load(f'{filename}_1.pth', weights_only=False)
-    part2_state_dict = torch.load(f'{filename}_2.pth', weights_only=False)
-    part3_state_dict = torch.load(f'{filename}_3.pth', weights_only=False)
+    def forward(self, x):
+        for sub_model in self.full_model:
+            x = sub_model(x)
+        return x
 
-    full_model.part1.load_state_dict(part1_state_dict)
-    full_model.part2.load_state_dict(part2_state_dict)
-    full_model.part3.load_state_dict(part3_state_dict)
-    # evaluation mode
-    full_model.eval()
+
+def test(model, cut_layers, filename):
+    model = FullModel(model, cut_layers)
+    for i, sub_model in enumerate(model.full_model):
+        part_i_state_dict = torch.load(f'{filename}_{i + 1}.pth', weights_only=False)
+        sub_model.load_state_dict(part_i_state_dict)
+
     test_loss = 0
     correct = 0
-    for data, target in test_loader:
-        output = full_model(data)
+    for data, target in tqdm(test_loader):
+        output = model(data)
         test_loss += F.nll_loss(output, target, reduction='sum').item()
         pred = output.data.max(1, keepdim=True)[1]  # get the index of the max log-probability
         correct += pred.eq(target.data.view_as(pred)).long().cpu().sum()

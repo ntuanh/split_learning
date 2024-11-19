@@ -14,7 +14,7 @@ import torchvision.transforms as transforms
 
 import src.Log
 from src.RpcClient import RpcClient
-from Model import ModelPart1
+
 
 parser = argparse.ArgumentParser(description="Split learning framework")
 # parser.add_argument('--id', type=int, required=True, help='ID of client')
@@ -44,9 +44,6 @@ else:
     device = "cpu"
     print(f"Using device: CPU")
 
-model = ModelPart1()
-optimizer = optim.SGD(model.parameters(), lr=lr)
-
 credentials = pika.PlainCredentials(username, password)
 connection = pika.BlockingConnection(pika.ConnectionParameters(address, 5672, '/', credentials))
 channel = connection.channel()
@@ -67,7 +64,8 @@ def send_intermediate_output(data_id, output, labels, test=False):
     )
 
 
-def train_on_device(trainloader, testloader=None):
+def train_on_device(model, trainloader, testloader=None):
+    optimizer = optim.SGD(model.parameters(), lr=lr)
     data_iter = iter(trainloader)
     backward_queue_name = f'gradient_queue_{layer_id}_{client_id}'
     channel.queue_declare(queue=backward_queue_name, durable=False)
@@ -199,7 +197,7 @@ if __name__ == "__main__":
         test_loader = None
 
     data = {"action": "REGISTER", "client_id": client_id, "layer_id": layer_id, "message": "Hello from Client!"}
-    client = RpcClient(client_id, layer_id, model, address, username, password, train_on_device, train_loader,
+    client = RpcClient(client_id, layer_id, address, username, password, train_on_device, train_loader,
                        test_loader)
     client.send_to_server(data)
     client.wait_response()

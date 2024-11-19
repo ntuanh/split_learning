@@ -10,7 +10,6 @@ import torch.optim as optim
 
 import src.Log
 from src.RpcClient import RpcClient
-from Model import ModelPart3
 
 parser = argparse.ArgumentParser(description="Split learning framework")
 # parser.add_argument('--id', type=int, required=True, help='ID of client')
@@ -37,10 +36,6 @@ if torch.cuda.is_available():
 else:
     device = "cpu"
     print(f"Using device: CPU")
-
-model = ModelPart3()
-optimizer = optim.SGD(model.parameters(), lr=lr)
-criterion = nn.CrossEntropyLoss()
 
 credentials = pika.PlainCredentials(username, password)
 connection = pika.BlockingConnection(pika.ConnectionParameters(address, 5672, '/', credentials))
@@ -76,7 +71,9 @@ def send_validation(data_id, data, trace):
     )
 
 
-def train_on_device():
+def train_on_device(model):
+    optimizer = optim.SGD(model.parameters(), lr=lr)
+    criterion = nn.CrossEntropyLoss()
     forward_queue_name = f'intermediate_queue_{layer_id - 1}'
     channel.queue_declare(queue=forward_queue_name, durable=False)
     channel.basic_qos(prefetch_count=10)
@@ -89,7 +86,6 @@ def train_on_device():
         # Process gradient
         method_frame, header_frame, body = channel.basic_get(queue=forward_queue_name, auto_ack=True)
         if method_frame and body:
-            # print("Received intermediate output")
             received_data = pickle.loads(body)
             intermediate_output_numpy = received_data["data"]
             trace = received_data["trace"]
@@ -129,6 +125,6 @@ def train_on_device():
 if __name__ == "__main__":
     src.Log.print_with_color("[>>>] Client sending registration message to server...", "red")
     data = {"action": "REGISTER", "client_id": client_id, "layer_id": layer_id, "message": "Hello from Client!"}
-    client = RpcClient(client_id, layer_id, model, address, username, password, train_on_device)
+    client = RpcClient(client_id, layer_id, address, username, password, train_on_device)
     client.send_to_server(data)
     client.wait_response()

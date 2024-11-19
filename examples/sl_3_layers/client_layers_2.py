@@ -5,12 +5,11 @@ import argparse
 import yaml
 
 import torch
-import torch.nn as nn
 import torch.optim as optim
 
 import src.Log
 from src.RpcClient import RpcClient
-from Model import ModelPart2
+
 
 parser = argparse.ArgumentParser(description="Split learning framework")
 # parser.add_argument('--id', type=int, required=True, help='ID of client')
@@ -38,9 +37,6 @@ else:
     device = "cpu"
     print(f"Using device: CPU")
 
-model = ModelPart2()
-optimizer = optim.SGD(model.parameters(), lr=lr)
-criterion = nn.CrossEntropyLoss()
 
 credentials = pika.PlainCredentials(username, password)
 connection = pika.BlockingConnection(pika.ConnectionParameters(address, 5672, '/', credentials))
@@ -78,7 +74,8 @@ def send_gradient(data_id, gradient, trace):
     )
 
 
-def train_on_device():
+def train_on_device(model):
+    optimizer = optim.SGD(model.parameters(), lr=lr)
     forward_queue_name = f'intermediate_queue_{layer_id - 1}'
     backward_queue_name = f'gradient_queue_{layer_id}_{client_id}'
     channel.queue_declare(queue=forward_queue_name, durable=False)
@@ -142,6 +139,6 @@ def train_on_device():
 if __name__ == "__main__":
     src.Log.print_with_color("[>>>] Client sending registration message to server...", "red")
     data = {"action": "REGISTER", "client_id": client_id, "layer_id": layer_id, "message": "Hello from Client!"}
-    client = RpcClient(client_id, layer_id, model, address, username, password, train_on_device)
+    client = RpcClient(client_id, layer_id, address, username, password, train_on_device)
     client.send_to_server(data)
     client.wait_response()

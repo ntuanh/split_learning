@@ -2,8 +2,8 @@ name: Split Learning
 server:
   num-round: 1
   cut_layers:
-    - 50
-    - 100
+    - 10
+    - 20
   clients:
     - 1
     - 1
@@ -16,9 +16,9 @@ server:
 
 
 rabbit:
-  address: 127.0.0.1
-  username: admin
-  password: admin
+  address: 192.168.101.234
+  username: dai
+  password: dai
 
 log_path: .
 

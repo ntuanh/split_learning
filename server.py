@@ -9,7 +9,7 @@ import numpy as np
 import torch
 import requests
 
-import src.Model
+from src.Model import VGG16, test
 import src.Log
 
 from requests.auth import HTTPBasicAuth
@@ -35,7 +35,14 @@ save_parameters = config["server"]["parameters"]["save"]
 load_parameters = config["server"]["parameters"]["load"]
 validation = config["server"]["validation"]
 
+# Clients
+batch_size = config["learning"]["batch-size"]
+lr = config["learning"]["learning-rate"]
+momentum = config["learning"]["momentum"]
+
 log_path = config["log_path"]
+
+full_model = VGG16()
 
 
 class Server:
@@ -129,7 +136,7 @@ class Server:
                 self.current_clients = [0 for _ in range(len(total_clients))]
                 # Test
                 if save_parameters and validation:
-                    src.Model.test(filename)
+                    test(full_model, cut_layers, filename)
                 # Start a new training round
                 self.num_round -= 1
                 if self.num_round > 0:
@@ -170,7 +177,10 @@ class Server:
                 response = {"action": "START",
                             "message": "Server accept the connection!",
                             "parameters": state_dict,
-                            "layers": layers}
+                            "layers": layers,
+                            "batch_size": batch_size,
+                            "lr": lr,
+                            "momentum": momentum}
             else:
                 src.Log.print_with_color(f"[>>>] Sent stop training request to client {client_id}", "red")
                 response = {"action": "STOP",
