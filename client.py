@@ -48,6 +48,6 @@ if __name__ == "__main__":
     src.Log.print_with_color("[>>>] Client sending registration message to server...", "red")
     data = {"action": "REGISTER", "client_id": client_id, "layer_id": args.layer_id, "message": "Hello from Client!"}
     scheduler = Scheduler(client_id, args.layer_id, channel, device, args.num_layers)
-    client = RpcClient(client_id, args.layer_id, address, username, password, scheduler.train_on_device)
+    client = RpcClient(client_id, args.layer_id, address, username, password, scheduler.train_on_device, device)
     client.send_to_server(data)
     client.wait_response()
