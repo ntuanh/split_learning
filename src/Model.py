@@ -163,21 +163,30 @@ class FullModel(nn.Module):
         return x
 
 
-def test(model, cut_layers, filename):
-    model = FullModel(model, cut_layers)
-    for i, sub_model in enumerate(model.full_model):
-        part_i_state_dict = torch.load(f'{filename}_{i + 1}.pth', weights_only=False)
-        sub_model.load_state_dict(part_i_state_dict)
+def test(model_name, cut_layers, logger):
+    klass = globals().get(model_name)
+    if klass is None:
+        raise ValueError(f"Class '{model_name}' does not exist.")
+    model = klass()
+    models = FullModel(model, cut_layers)
 
+    for i, sub_model in enumerate(models.full_model):
+        part_i_state_dict = torch.load(f'{model_name}_{i + 1}.pth', weights_only=False)
+        sub_model.load_state_dict(part_i_state_dict)
+    # evaluation mode
+    model.eval()
     test_loss = 0
     correct = 0
     for data, target in tqdm(test_loader):
-        output = model(data)
+        output = models(data)
         test_loss += F.nll_loss(output, target, reduction='sum').item()
         pred = output.data.max(1, keepdim=True)[1]  # get the index of the max log-probability
         correct += pred.eq(target.data.view_as(pred)).long().cpu().sum()
 
     test_loss /= len(test_loader.dataset)
-    print('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
+    print('Test set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
+        test_loss, correct, len(test_loader.dataset),
+        100.0 * correct / len(test_loader.dataset)))
+    logger.log_info('Test set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
         test_loss, correct, len(test_loader.dataset),
         100.0 * correct / len(test_loader.dataset)))

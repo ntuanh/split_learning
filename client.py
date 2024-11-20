@@ -13,6 +13,7 @@ from src.Scheduler import Scheduler
 parser = argparse.ArgumentParser(description="Split learning framework")
 parser.add_argument('--layer_id', type=int, required=True, help='ID of layer, start from 1')
 parser.add_argument('--num_layers', type=int, required=True, help='Number of split layers')
+parser.add_argument('--device', type=str, required=False, help='Device of client')
 
 args = parser.parse_args()
 
@@ -27,12 +28,16 @@ password = config["rabbit"]["password"]
 
 device = None
 
-if torch.cuda.is_available():
-    device = "cuda"
-    print(f"Using device: {torch.cuda.get_device_name(device)}")
+if args.device is None:
+    if torch.cuda.is_available():
+        device = "cuda"
+        print(f"Using device: {torch.cuda.get_device_name(device)}")
+    else:
+        device = "cpu"
+        print(f"Using device: CPU")
 else:
-    device = "cpu"
-    print(f"Using device: CPU")
+    device = args.device
+    print(f"Using device: {device}")
 
 credentials = pika.PlainCredentials(username, password)
 connection = pika.BlockingConnection(pika.ConnectionParameters(address, 5672, '/', credentials))

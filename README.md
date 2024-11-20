@@ -83,7 +83,7 @@ server:   # server configuration
     - 3
     - 2
     - 1
-  model: VGG16      # model name
+  model: VGG16      # class name of DNN model
   parameters:
     load: False     # allow to load parameters file
     save: False     # allow to save parameters file
@@ -105,24 +105,32 @@ learning:
   validation: False   # run validate on client side
 ```
 
-This configuration is use for server and all clients.
+This configuration is use for server.
+
+### List of DNN model
+
+For `server.model` field:
+
+```
+VGG16
+```
 
 ## How to Run
 
 Alter your configuration, you need to run the server to listen and control the request from clients.
 
-### SL mode
+### Server
 
-#### Server
 ```commandline
 python server.py
 ```
 
-#### Client
+### Client
 
 Now, when server is ready, run clients simultaneously with total number of client that you defined.
 
 **Layer 1**
+
 ```commandline
 python client.py --layer_id 1 --num_layers 3
 ```
@@ -139,11 +147,10 @@ If the `*.pth` file exists, the server will read the file and send the parameter
 
 ---
 
-Version 1.5.1
+Version 1.6.0
 
 The application is under development...
 
 TODO:
 - Delete all queues alter finish
-- Package server class
 - Create close connection request
