@@ -14,7 +14,6 @@ server:
     save: False
   validation: False
 
-
 rabbit:
   address: 192.168.101.234
   username: dai

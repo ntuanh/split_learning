@@ -135,6 +135,12 @@ Now, when server is ready, run clients simultaneously with total number of clien
 python client.py --layer_id 1 --num_layers 3
 ```
 
+If you want to use a specific device configuration for the training process, declare it with the `--device` argument when running the command line:
+
+```commandline
+python client.py --layer_id 1 --num_layers 3 --device cpu
+```
+
 Where:
 - `--layer_id` is the ID index of client's layer, start from 1.
 - `--num_layers` is the total number of clients.
@@ -147,10 +153,11 @@ If the `*.pth` file exists, the server will read the file and send the parameter
 
 ---
 
-Version 1.6.0
+Version 1.6.1
 
 The application is under development...
 
 TODO:
+- Inference mode and training mode
 - Delete all queues alter finish
 - Create close connection request

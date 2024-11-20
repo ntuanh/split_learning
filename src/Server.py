@@ -72,6 +72,7 @@ class Server:
         self.lr = config["learning"]["learning-rate"]
         self.momentum = config["learning"]["momentum"]
         self.control_count = config["learning"]["control-count"]
+        self.client_validation = config["learning"]["validation"]
 
         log_path = config["log_path"]
 
@@ -211,7 +212,7 @@ class Server:
                             "batch_size": self.batch_size,
                             "lr": self.lr,
                             "momentum": self.momentum,
-                            "validation": self.validation}
+                            "validation": self.client_validation}
             else:
                 src.Log.print_with_color(f"[>>>] Sent stop training request to client {client_id}", "red")
                 response = {"action": "STOP",

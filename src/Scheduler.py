@@ -173,7 +173,7 @@ class Scheduler:
                     # Send to next layers
                     num_forward += 1
 
-                    self.send_intermediate_output(data_id, intermediate_output, labels, None)
+                    self.send_intermediate_output(data_id, intermediate_output, labels, None, True)
 
                 while True:
                     method_frame, header_frame, body = self.channel.basic_get(queue=backward_queue_name, auto_ack=True)
