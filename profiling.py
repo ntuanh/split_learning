@@ -1,6 +1,8 @@
 import torch
 import torch.nn as nn
 import time
+import argparse
+import numpy as np
 
 import torchvision
 import torchvision.transforms as transforms
@@ -8,8 +10,31 @@ import torchvision.transforms as transforms
 import src.Model
 
 
-model = src.Model.VGG16()
-batch_size = 100
+parser = argparse.ArgumentParser(description="Split learning framework")
+parser.add_argument('--device', type=str, required=False, help='Device of client')
+parser.add_argument('--round', type=int, required=False, help='Profiling round')
+parser.add_argument('--batch_size', type=int, required=False, help='Batch size')
+
+args = parser.parse_args()
+
+device = None
+
+if args.device is None:
+    if torch.cuda.is_available():
+        device = "cuda"
+        print(f"Using device: {torch.cuda.get_device_name(device)}")
+    else:
+        device = "cpu"
+        print(f"Using device: CPU")
+else:
+    device = args.device
+    print(f"Using device: {device}")
+
+model = src.Model.VGG16().to(device)
+batch_size = 128
+test_round = 100
+if args.round:
+    test_round = args.round
 
 full_model = []
 for sub_model in nn.Sequential(*nn.ModuleList(model.children())):
@@ -31,20 +56,26 @@ forward_time = []
 train_data = None
 
 for (data, target) in test_loader:
+    data = data.to(device)
     train_data = data
     break
 
-data = train_data
 
 # Forward
-for sub_model in full_model:
-    start = time.time_ns()
-    time.time()
-    sub_model.train()
-    data = sub_model(data)
-    data_size.append(data.nelement() * data.element_size())
-    end = time.time_ns()
-    forward_time.append(end-start)
+for i in range(test_round):
+    data = train_data
+    times = []
+    for sub_model in full_model:
+        sub_model.train()
+        start = time.time_ns()
+        data = sub_model(data)
+        end = time.time_ns()
+        if i == 0:
+            data_size.append(data.nelement() * data.element_size())
+        times.append(end-start)
+    forward_time.append(times)
 
-print(f"List of forward tranining time = {forward_time} nano second")
+forward_time = np.array(forward_time)
+
+print(f"List of forward training time = {np.average(forward_time, axis=0)} nano second")
 print(f"List of data size = {data_size} bytes")
