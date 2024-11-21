@@ -13,13 +13,6 @@ else:
     device = "cpu"
     print(f"Using device: CPU")
 
-n_epochs = 5
-batch_size_train = 128
-batch_size_test = 100
-learning_rate = 0.01
-momentum = 0.5
-log_interval = 10
-
 
 class VGG16(torch.nn.Module):
     def __init__(self):
@@ -133,17 +126,6 @@ class VGG16(torch.nn.Module):
         return out52
 
 
-transform_test = transforms.Compose([
-    transforms.ToTensor(),
-    transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
-])
-
-testset = torchvision.datasets.CIFAR10(
-    root='./data', train=False, download=False, transform=transform_test)
-test_loader = torch.utils.data.DataLoader(
-    testset, batch_size=100, shuffle=False, num_workers=2)
-
-
 class FullModel(nn.Module):
     def __init__(self, model, cut_layers):
         super(FullModel, self).__init__()
@@ -164,6 +146,16 @@ class FullModel(nn.Module):
 
 
 def test(model_name, cut_layers, logger):
+    transform_test = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+    ])
+
+    testset = torchvision.datasets.CIFAR10(
+        root='./data', train=False, download=True, transform=transform_test)
+    test_loader = torch.utils.data.DataLoader(
+        testset, batch_size=100, shuffle=False, num_workers=2)
+
     klass = globals().get(model_name)
     if klass is None:
         raise ValueError(f"Class '{model_name}' does not exist.")
