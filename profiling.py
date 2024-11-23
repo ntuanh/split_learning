@@ -9,7 +9,6 @@ import torchvision.transforms as transforms
 
 import src.Model
 
-
 parser = argparse.ArgumentParser(description="Split learning framework")
 parser.add_argument('--device', type=str, required=False, help='Device of client')
 parser.add_argument('--round', type=int, required=False, help='Profiling round')
@@ -60,22 +59,23 @@ for (data, target) in test_loader:
     train_data = data
     break
 
+if __name__ == '__main__':
+    for i in range(test_round):
+        data = train_data
+        times = []
+        for sub_model in full_model:
+            sub_model.train()
+            start = time.time_ns()
+            data = sub_model(data)
+            end = time.time_ns()
+            if i == 0:
+                data_size.append(data.nelement() * data.element_size())
+            times.append(end-start)
+        forward_time.append(times)
 
-# Forward
-for i in range(test_round):
-    data = train_data
-    times = []
-    for sub_model in full_model:
-        sub_model.train()
-        start = time.time_ns()
-        data = sub_model(data)
-        end = time.time_ns()
-        if i == 0:
-            data_size.append(data.nelement() * data.element_size())
-        times.append(end-start)
-    forward_time.append(times)
+    forward_time = np.array(forward_time)
+    forward_time = np.average(forward_time, axis=0)
+    forward_time = forward_time.tolist()
 
-forward_time = np.array(forward_time)
-
-print(f"List of forward training time = {np.average(forward_time, axis=0)} nano second")
-print(f"List of data size = {data_size} bytes")
+    print(f"List of forward training time = {forward_time} nano second")
+    print(f"List of data size = {data_size} bytes")
