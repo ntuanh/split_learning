@@ -45,11 +45,13 @@ layer3_comm_grad = [x * a2_3 for x in size_data]
 time_min = 1000000000
 result = [0, 0]
 
+training_time_rate = 3
+
 for i in range(1, len(size_data) - 1):
     for j in range(i + 1, len(size_data)):
-        layer1 = (sum(layer1_exe[:i]) + layer1_comm_data[i - 1]) / topo[0]
-        layer2 = (sum(layer2_exe[i:j]) + layer2_comm_data[j - 1] + layer2_comm_grad[i - 1]) / topo[1]
-        layer3 = (sum(layer3_exe[j:]) + layer3_comm_grad[j - 1]) / topo[2]
+        layer1 = (sum(layer1_exe[:i]) * (training_time_rate + 1) + layer1_comm_data[i - 1]) / topo[0]
+        layer2 = (sum(layer2_exe[i:j]) * (training_time_rate + 1) + layer2_comm_data[j - 1] + layer2_comm_grad[i - 1]) / topo[1]
+        layer3 = (sum(layer3_exe[j:]) * (training_time_rate + 1) + layer3_comm_grad[j - 1]) / topo[2]
 
         time_max = max(layer1, layer2, layer3)
         if time_max < time_min:
