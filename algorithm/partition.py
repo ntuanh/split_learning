@@ -1,11 +1,10 @@
 import argparse
 
 parser = argparse.ArgumentParser(description="Add topo")
-parser.add_argument('--topo', type=int, nargs='+', help="Topo", required=True)
+parser.add_argument('--topo', type=int, nargs='+', help="Topo", required=False, default=[0])
 args = parser.parse_args()
 topo = args.topo
 
-print(topo)
 t_exe_1 = [13357545.69, 16633400.59, 4483398.08, 108550489.29, 17601796.66, 6936498.06,
            25696338.27, 47776377.32, 8637623.77, 2235370.44, 96616254.5, 8986239.39, 4386030.65,
            14442040.75, 42552181.87, 5193747.46, 1090723.94, 86274202.48, 4755385.98, 2229564.38,
@@ -42,22 +41,39 @@ layer2_comm_data = [x * a2_3 for x in size_data]
 layer2_comm_grad = [x * a1_2 for x in size_data]
 layer3_exe = t_exe_3
 layer3_comm_grad = [x * a2_3 for x in size_data]
-time_min = 1000000000
-result = [0, 0]
+time_min = float('inf')
+result = None
 
 training_time_rate = 3
 
-for i in range(1, len(size_data) - 1):
-    for j in range(i + 1, len(size_data)):
+if len(topo) == 2:
+    for i in range(1, len(size_data) - 1):
         layer1 = (sum(layer1_exe[:i]) * (training_time_rate + 1) + layer1_comm_data[i - 1]) / topo[0]
-        layer2 = (sum(layer2_exe[i:j]) * (training_time_rate + 1) + layer2_comm_data[j - 1] + layer2_comm_grad[i - 1]) / topo[1]
-        layer3 = (sum(layer3_exe[j:]) * (training_time_rate + 1) + layer3_comm_grad[j - 1]) / topo[2]
+        layer2 = (sum(layer2_exe[i:]) * (training_time_rate + 1) + layer2_comm_grad[i - 1]) / topo[1]
 
-        time_max = max(layer1, layer2, layer3)
+        time_max = max(layer1, layer2)
         if time_max < time_min:
-            result = [i, j]
+            result = [i]
             time_min = time_max
         else:
             continue
+if len(topo) == 3:
+    for i in range(1, len(size_data) - 1):
+        for j in range(i + 1, len(size_data)):
+            layer1 = (sum(layer1_exe[:i]) * (training_time_rate + 1) + layer1_comm_data[i - 1]) / topo[0]
+            layer2 = (sum(layer2_exe[i:j]) * (training_time_rate + 1) + layer2_comm_data[j - 1] + layer2_comm_grad[i - 1]) / topo[1]
+            layer3 = (sum(layer3_exe[j:]) * (training_time_rate + 1) + layer3_comm_grad[j - 1]) / topo[2]
 
-print(result)
+            time_max = max(layer1, layer2, layer3)
+            if time_max < time_min:
+                result = [i, j]
+                time_min = time_max
+            else:
+                continue
+
+print(f"Partition at: {result}")
+print(f"Time min = {time_min/1000000000} s")
+
+# print(sum(t_exe_1) * (training_time_rate + 1) / 1000000000)
+# print(sum(t_exe_2) * (training_time_rate + 1) / 1000000000)
+# print(sum(t_exe_3) * (training_time_rate + 1) / 1000000000)
