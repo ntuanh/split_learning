@@ -1,8 +1,10 @@
 import time
 import uuid
 import pickle
+import random
 import numpy as np
 from tqdm import tqdm
+from collections import defaultdict
 
 import torch
 import torch.optim as optim
@@ -77,7 +79,7 @@ class Scheduler:
                                    routing_key='rpc_queue',
                                    body=pickle.dumps(message))
 
-    def train_on_first_layer(self, model, control_count, batch_size, lr, momentum, validation):
+    def train_on_first_layer(self, model, control_count, batch_size, lr, momentum, validation, label_count):
         # Read and load dataset
         transform_train = transforms.Compose([
             transforms.RandomCrop(32, padding=4),
@@ -91,19 +93,27 @@ class Scheduler:
             transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
         ])
 
-        trainset = torchvision.datasets.CIFAR10(
+        train_set = torchvision.datasets.CIFAR10(
             root='./data', train=True, download=True, transform=transform_train)
-        train_loader = torch.utils.data.DataLoader(
-            trainset, batch_size=batch_size, shuffle=True)
 
         if validation:
-            testset = torchvision.datasets.CIFAR10(
+            test_set = torchvision.datasets.CIFAR10(
                 root='./data', train=False, download=True, transform=transform_test)
             test_loader = torch.utils.data.DataLoader(
-                testset, batch_size=batch_size, shuffle=False)
+                test_set, batch_size=batch_size, shuffle=False)
         else:
             test_loader = None
 
+        label_to_indices = defaultdict(list)
+        for idx, (_, label) in enumerate(train_set):
+            label_to_indices[label].append(idx)
+
+        selected_indices = []
+        for label, count in enumerate(label_count):
+            selected_indices.extend(random.sample(label_to_indices[label], count))
+
+        subset = torch.utils.data.Subset(train_set, selected_indices)
+        train_loader = torch.utils.data.DataLoader(subset, batch_size=batch_size, shuffle=True)
         optimizer = optim.SGD(model.parameters(), lr=lr, momentum=momentum)
         data_iter = iter(train_loader)
 
@@ -321,9 +331,9 @@ class Scheduler:
                     if received_data["action"] == "PAUSE":
                         break
 
-    def train_on_device(self, model, control_count, batch_size, lr, momentum, validation):
+    def train_on_device(self, model, control_count, batch_size, lr, momentum, validation, label_count):
         if self.layer_id == 1:
-            self.train_on_first_layer(model, control_count, batch_size, lr, momentum, validation)
+            self.train_on_first_layer(model, control_count, batch_size, lr, momentum, validation, label_count)
         elif self.layer_id == self.num_devices:
             self.train_on_last_layer(model, lr, momentum)
         else:

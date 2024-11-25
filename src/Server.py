@@ -1,4 +1,5 @@
 import os
+import time
 import pika
 import pickle
 import sys
@@ -14,6 +15,9 @@ from src.Model import test
 import src.Log
 
 
+num_labels = 10
+
+
 def delete_old_queues(address, username, password):
     url = f'http://{address}:15672/api/queues'
     response = requests.get(url, auth=HTTPBasicAuth(username, password))
@@ -27,9 +31,8 @@ def delete_old_queues(address, username, password):
 
         for queue in queues:
             queue_name = queue['name']
-            if queue_name.startswith("reply") or queue_name.startswith(
-                    "intermediate_queue") or queue_name.startswith(
-                    "gradient_queue"):
+            if queue_name.startswith("reply") or queue_name.startswith("intermediate_queue") or queue_name.startswith(
+                    "gradient_queue") or queue_name.startswith("rpc_queue"):
                 try:
                     http_channel.queue_delete(queue=queue_name)
                     src.Log.print_with_color(f"Queue '{queue_name}' deleted.", "green")
@@ -58,6 +61,7 @@ class Server:
         address = config["rabbit"]["address"]
         username = config["rabbit"]["username"]
         password = config["rabbit"]["password"]
+        delete_old_queues(address, username, password)
 
         self.model_name = config["server"]["model"]
         self.total_clients = config["server"]["clients"]
@@ -75,6 +79,9 @@ class Server:
         self.client_validation = config["learning"]["validation"]
 
         log_path = config["log_path"]
+        self.label_count = [5000 // self.total_clients[0] for _ in range(num_labels)]
+        self.time_start = None
+        self.time_stop = None
 
         credentials = pika.PlainCredentials(username, password)
         self.connection = pika.BlockingConnection(pika.ConnectionParameters(address, 5672, '/', credentials))
@@ -97,7 +104,6 @@ class Server:
         self.logger = src.Log.Logger(f"{log_path}/app.log")
         self.logger.log_info("Application start")
 
-        delete_old_queues(address, username, password)
         src.Log.print_with_color(f"Server is waiting for {self.total_clients} clients.", "green")
 
     def on_request(self, ch, method, props, body):
@@ -130,6 +136,10 @@ class Server:
 
             if self.first_layer_clients == self.total_clients[0]:
                 self.first_layer_clients = 0
+                self.time_stop = time.time_ns()
+
+                t = self.time_stop - self.time_start
+                self.logger.log_info(f"Training Time: {t} ns.")
                 src.Log.print_with_color("Received finish training notification", "yellow")
 
                 if self.all_labels.size == self.all_vals.size and self.all_vals.size > 0:
@@ -137,7 +147,7 @@ class Server:
                     total_elements = self.all_vals.size
                     accuracy = same_elements / total_elements
                     src.Log.print_with_color("Inference test: Accuracy: ({:.0f}%)".format(100.0 * accuracy), "yellow")
-                    self.logger.log_info("Inference test: Accuracy: ({:.0f}%)".format(100.0 * accuracy))
+                    self.logger.log_info("Inference test: Accuracy: ({:.0f}%)\n".format(100.0 * accuracy))
 
                     self.all_labels = np.array([])
                     self.all_vals = np.array([])
@@ -212,12 +222,14 @@ class Server:
                             "batch_size": self.batch_size,
                             "lr": self.lr,
                             "momentum": self.momentum,
-                            "validation": self.client_validation}
+                            "validation": self.client_validation,
+                            "label_count": self.label_count}
             else:
                 src.Log.print_with_color(f"[>>>] Sent stop training request to client {client_id}", "red")
                 response = {"action": "STOP",
                             "message": "Stop training!",
                             "parameters": None}
+            self.time_start = time.time_ns()
             self.send_to_response(client_id, pickle.dumps(response))
 
     def start(self):
