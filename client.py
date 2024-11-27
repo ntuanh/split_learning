@@ -12,7 +12,6 @@ from src.Scheduler import Scheduler
 
 parser = argparse.ArgumentParser(description="Split learning framework")
 parser.add_argument('--layer_id', type=int, required=True, help='ID of layer, start from 1')
-parser.add_argument('--num_layers', type=int, required=True, help='Number of split layers')
 parser.add_argument('--device', type=str, required=False, help='Device of client')
 
 args = parser.parse_args()
@@ -47,7 +46,7 @@ channel = connection.channel()
 if __name__ == "__main__":
     src.Log.print_with_color("[>>>] Client sending registration message to server...", "red")
     data = {"action": "REGISTER", "client_id": client_id, "layer_id": args.layer_id, "message": "Hello from Client!"}
-    scheduler = Scheduler(client_id, args.layer_id, channel, device, args.num_layers)
+    scheduler = Scheduler(client_id, args.layer_id, channel, device)
     client = RpcClient(client_id, args.layer_id, address, username, password, scheduler.train_on_device, device)
     client.send_to_server(data)
     client.wait_response()

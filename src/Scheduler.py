@@ -16,12 +16,11 @@ import src.Log
 
 
 class Scheduler:
-    def __init__(self, client_id, layer_id, channel, device, num_layers):
+    def __init__(self, client_id, layer_id, channel, device):
         self.client_id = client_id
         self.layer_id = layer_id
         self.channel = channel
         self.device = device
-        self.num_devices = num_layers
 
     def send_intermediate_output(self, data_id, output, labels, trace, test=False):
         forward_queue_name = f'intermediate_queue_{self.layer_id}'
@@ -331,10 +330,10 @@ class Scheduler:
                     if received_data["action"] == "PAUSE":
                         break
 
-    def train_on_device(self, model, control_count, batch_size, lr, momentum, validation, label_count):
+    def train_on_device(self, model, control_count, batch_size, lr, momentum, validation, label_count, num_layers):
         if self.layer_id == 1:
             self.train_on_first_layer(model, control_count, batch_size, lr, momentum, validation, label_count)
-        elif self.layer_id == self.num_devices:
+        elif self.layer_id == num_layers:
             self.train_on_last_layer(model, lr, momentum)
         else:
             self.train_on_middle_layer(model, control_count, lr, momentum)

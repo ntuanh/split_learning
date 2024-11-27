@@ -216,6 +216,7 @@ class Server:
                 response = {"action": "START",
                             "message": "Server accept the connection!",
                             "parameters": state_dict,
+                            "num_layers": len(self.total_clients),
                             "layers": layers,
                             "model_name": self.model_name,
                             "control_count": self.control_count,

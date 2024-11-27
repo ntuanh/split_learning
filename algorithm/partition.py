@@ -1,4 +1,5 @@
 import argparse
+import numpy as np
 
 parser = argparse.ArgumentParser(description="Add topo")
 parser.add_argument('--topo', type=int, nargs='+', help="Topo", required=False, default=[0])
@@ -31,8 +32,13 @@ size_data = [33554432, 33554432, 33554432, 33554432, 33554432, 33554432, 8388608
              8388608, 8388608, 2097152, 4194304, 4194304, 4194304, 4194304, 4194304, 4194304, 4194304, 4194304,
              4194304, 1048576, 1048576, 1048576, 1048576, 1048576, 1048576, 1048576, 1048576, 1048576, 1048576,
              262144, 262144, 262144, 2097152, 2097152, 2097152, 2097152, 2097152, 5120]
-a1_2 = 5.321956086901455
-a2_3 = 11.684686209372796
+
+# LAN
+# a1_2 = 5.321956086901455
+# a2_3 = 11.684686209372796
+# 5G
+a1_2 = 50
+a2_3 = 50
 
 layer1_exe = t_exe_1
 layer1_comm_data = [x * a1_2 for x in size_data]
@@ -55,8 +61,6 @@ if len(topo) == 2:
         if time_max < time_min:
             result = [i]
             time_min = time_max
-        else:
-            continue
 if len(topo) == 3:
     for i in range(1, len(size_data) - 1):
         for j in range(i + 1, len(size_data)):
@@ -68,10 +72,8 @@ if len(topo) == 3:
             if time_max < time_min:
                 result = [i, j]
                 time_min = time_max
-            else:
-                continue
 
-print(f"Partition at: {result}")
+print(f"Partition at: {result} - {np.array(size_data)[result]}")
 print(f"Time min = {time_min/1000000000} s")
 
 # print(sum(t_exe_1) * (training_time_rate + 1) / 1000000000)

@@ -132,18 +132,17 @@ Now, when server is ready, run clients simultaneously with total number of clien
 **Layer 1**
 
 ```commandline
-python client.py --layer_id 1 --num_layers 3
-```
-
-If you want to use a specific device configuration for the training process, declare it with the `--device` argument when running the command line:
-
-```commandline
-python client.py --layer_id 1 --num_layers 3 --device cpu
+python client.py --layer_id 1
 ```
 
 Where:
 - `--layer_id` is the ID index of client's layer, start from 1.
-- `--num_layers` is the total number of clients.
+
+If you want to use a specific device configuration for the training process, declare it with the `--device` argument when running the command line:
+
+```commandline
+python client.py --layer_id 1 --device cpu
+```
 
 ## Parameter Files
 

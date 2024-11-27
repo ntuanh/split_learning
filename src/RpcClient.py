@@ -43,6 +43,7 @@ class RpcClient:
             model_name = self.response["model_name"]
             cut_layers = self.response['layers']
             label_count = self.response['label_count']
+            num_layers = self.response['num_layers']
 
             if self.model is None:
                 klass = getattr(src.Model, model_name)
@@ -72,7 +73,7 @@ class RpcClient:
             control_count = self.response["control_count"]
 
             # Start training
-            self.train_func(self.model, control_count, batch_size, lr, momentum, validation, label_count)
+            self.train_func(self.model, control_count, batch_size, lr, momentum, validation, label_count, num_layers)
 
             # Stop training, then send parameters to server
             model_state_dict = self.model.state_dict()
