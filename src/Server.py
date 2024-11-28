@@ -67,6 +67,7 @@ class Server:
         self.total_clients = config["server"]["clients"]
         self.cut_layers = config["server"]["cut_layers"]
         self.num_round = config["server"]["num-round"]
+        self.round = self.num_round
         self.save_parameters = config["server"]["parameters"]["save"]
         self.load_parameters = config["server"]["parameters"]["load"]
         self.validation = config["server"]["validation"]
@@ -124,6 +125,7 @@ class Server:
             # If consumed all clients - Register for first time
             if self.register_clients == self.total_clients:
                 src.Log.print_with_color("All clients are connected. Sending notifications.", "green")
+                src.Log.print_with_color(f"Start training round {self.num_round - self.round + 1}", "yellow")
                 self.notify_clients()
         elif action == "NOTIFY":
             src.Log.print_with_color(f"[<<<] Received message from client: {message}", "blue")
@@ -177,8 +179,9 @@ class Server:
                 if self.save_parameters and self.validation:
                     test(self.model_name, self.cut_layers, self.logger)
                 # Start a new training round
-                self.num_round -= 1
-                if self.num_round > 0:
+                self.round -= 1
+                if self.round > 0:
+                    src.Log.print_with_color(f"Start training round {self.num_round - self.round + 1}", "yellow")
                     if self.save_parameters:
                         self.notify_clients()
                     else:
