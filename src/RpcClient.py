@@ -61,9 +61,6 @@ class RpcClient:
 
             # Read parameters and load to model
             if state_dict:
-                if self.device != "cpu":
-                    for key in state_dict:
-                        state_dict[key] = state_dict[key].to(self.device)
                 self.model.load_state_dict(state_dict)
 
             batch_size = self.response["batch_size"]
