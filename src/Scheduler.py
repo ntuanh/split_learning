@@ -21,6 +21,7 @@ class Scheduler:
         self.layer_id = layer_id
         self.channel = channel
         self.device = device
+        self.data_count = 0
 
     def send_intermediate_output(self, data_id, output, labels, trace, test=False):
         forward_queue_name = f'intermediate_queue_{self.layer_id}'
@@ -158,6 +159,7 @@ class Scheduler:
 
                         # Send to next layers
                         num_forward += 1
+                        self.data_count += 1
                         # tqdm bar
                         pbar.update(1)
 
@@ -214,11 +216,12 @@ class Scheduler:
                 received_data = pickle.loads(body)
                 src.Log.print_with_color(f"[<<<] Received message from server {received_data}", "blue")
                 if received_data["action"] == "PAUSE":
-                    break
+                    return True
             time.sleep(0.5)
 
     def train_on_last_layer(self, model, lr, momentum):
         optimizer = optim.SGD(model.parameters(), lr=lr, momentum=momentum)
+        result = True
 
         criterion = nn.CrossEntropyLoss()
         forward_queue_name = f'intermediate_queue_{self.layer_id - 1}'
@@ -252,9 +255,14 @@ class Scheduler:
                     output = model(intermediate_output)
                     loss = criterion(output, labels)
                     print(f"Loss: {loss.item()}")
+                    if torch.isnan(loss).any():
+                        src.Log.print_with_color("NaN detected in loss", "yellow")
+                        result = False
+
                     intermediate_output.retain_grad()
                     loss.backward()
                     optimizer.step()
+                    self.data_count += 1
 
                     gradient = intermediate_output.grad
                     self.send_gradient(data_id, gradient, trace)  # 1F1B
@@ -266,7 +274,7 @@ class Scheduler:
                     received_data = pickle.loads(body)
                     src.Log.print_with_color(f"[<<<] Received message from server {received_data}", "blue")
                     if received_data["action"] == "PAUSE":
-                        break
+                        return result
 
     def train_on_middle_layer(self, model, control_count, lr, momentum):
         optimizer = optim.SGD(model.parameters(), lr=lr, momentum=momentum)
@@ -316,6 +324,7 @@ class Scheduler:
                     output = model(intermediate_output)
                     output = output.detach().requires_grad_(True)
 
+                    self.data_count += 1
                     self.send_intermediate_output(data_id, output, labels, trace, test)
                     # speed control
                     if len(data_store) > control_count:
@@ -328,12 +337,14 @@ class Scheduler:
                     received_data = pickle.loads(body)
                     src.Log.print_with_color(f"[<<<] Received message from server {received_data}", "blue")
                     if received_data["action"] == "PAUSE":
-                        break
+                        return True
 
     def train_on_device(self, model, control_count, batch_size, lr, momentum, validation, label_count, num_layers):
+        self.data_count = 0
         if self.layer_id == 1:
-            self.train_on_first_layer(model, control_count, batch_size, lr, momentum, validation, label_count)
+            result = self.train_on_first_layer(model, control_count, batch_size, lr, momentum, validation, label_count)
         elif self.layer_id == num_layers:
-            self.train_on_last_layer(model, lr, momentum)
+            result = self.train_on_last_layer(model, lr, momentum)
         else:
-            self.train_on_middle_layer(model, control_count, lr, momentum)
+            result = self.train_on_middle_layer(model, control_count, lr, momentum)
+        return result, self.data_count

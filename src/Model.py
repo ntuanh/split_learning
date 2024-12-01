@@ -1,5 +1,7 @@
 import torch
 import torch.nn as nn
+import numpy as np
+import math
 from tqdm import tqdm
 
 import torchvision
@@ -145,7 +147,7 @@ class FullModel(nn.Module):
         return x
 
 
-def test(model_name, cut_layers, logger):
+def test(model_name, cut_layers, avg_state_dict, logger):
     transform_test = transforms.Compose([
         transforms.ToTensor(),
         transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
@@ -163,8 +165,7 @@ def test(model_name, cut_layers, logger):
     models = FullModel(model, cut_layers)
 
     for i, sub_model in enumerate(models.full_model):
-        part_i_state_dict = torch.load(f'{model_name}_{i + 1}.pth', weights_only=False)
-        sub_model.load_state_dict(part_i_state_dict)
+        sub_model.load_state_dict(avg_state_dict[i])
     # evaluation mode
     model.eval()
     test_loss = 0
@@ -176,9 +177,14 @@ def test(model_name, cut_layers, logger):
         correct += pred.eq(target.data.view_as(pred)).long().cpu().sum()
 
     test_loss /= len(test_loader.dataset)
-    print('Test set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
-        test_loss, correct, len(test_loader.dataset),
-        100.0 * correct / len(test_loader.dataset)))
-    logger.log_info('Test set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
-        test_loss, correct, len(test_loader.dataset),
-        100.0 * correct / len(test_loader.dataset)))
+    accuracy = 100.0 * correct / len(test_loader.dataset)
+    print('Test set: Average loss: {:.4f}, Accuracy: {}/{} ({:.2f}%)\n'.format(
+        test_loss, correct, len(test_loader.dataset), accuracy))
+
+    if np.isnan(test_loss) or math.isnan(test_loss) or abs(test_loss) > 10e5:
+        return False
+    else:
+        logger.log_info('Test set: Average loss: {:.4f}, Accuracy: {}/{} ({:.2f}%)\n'.format(
+            test_loss, correct, len(test_loader.dataset), accuracy))
+
+    return True

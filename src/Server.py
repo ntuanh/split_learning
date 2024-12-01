@@ -11,9 +11,8 @@ import requests
 
 from requests.auth import HTTPBasicAuth
 
-from src.Model import test
+import src.Model
 import src.Log
-
 
 num_labels = 10
 
@@ -95,8 +94,11 @@ class Server:
         self.first_layer_clients = 0
         self.responses = {}  # Save response
         self.list_clients = []
+        self.avg_state_dict = [[] for _ in range(len(self.total_clients))]
+        self.round_result = True
 
         self.all_model_parameters = [[] for _ in range(len(self.total_clients))]
+        self.all_client_sizes = [[] for _ in range(len(self.total_clients))]
         self.all_labels = np.array([])
         self.all_vals = np.array([])
 
@@ -161,25 +163,40 @@ class Server:
                     self.send_to_response(client_id, pickle.dumps(message))
         elif action == "UPDATE":
             data_message = message["message"]
+            result = message["result"]
             src.Log.print_with_color(f"[<<<] Received message from client: {data_message}", "blue")
             self.current_clients[layer_id - 1] += 1
+            if not result:
+                self.round_result = False
+
             # Save client's model parameters
-            if self.save_parameters:
+            if self.save_parameters and self.round_result:
                 model_state_dict = message["parameters"]
+                client_size = message["size"]
                 self.all_model_parameters[layer_id - 1].append(model_state_dict)
+                self.all_client_sizes[layer_id - 1].append(client_size)
 
             # If consumed all client's parameters
             if self.current_clients == self.total_clients:
                 src.Log.print_with_color("Collected all parameters.", "yellow")
-                if self.save_parameters:
+                if self.save_parameters and self.round_result:
                     self.avg_all_parameters()
                     self.all_model_parameters = [[] for _ in range(len(self.total_clients))]
+                    self.all_client_sizes = [[] for _ in range(len(self.total_clients))]
                 self.current_clients = [0 for _ in range(len(self.total_clients))]
                 # Test
-                if self.save_parameters and self.validation:
-                    test(self.model_name, self.cut_layers, self.logger)
+                if self.save_parameters and self.validation and self.round_result:
+                    self.round_result = src.Model.test(self.model_name, self.cut_layers, self.avg_state_dict,
+                                                       self.logger)
                 # Start a new training round
-                self.round -= 1
+                if not self.round_result:
+                    src.Log.print_with_color("Training failed!", "yellow")
+                else:
+                    # Save to files
+                    self.save_all_state_dict()
+                    self.round -= 1
+                self.round_result = True
+
                 if self.round > 0:
                     src.Log.print_with_color(f"Start training round {self.num_round - self.round + 1}", "yellow")
                     if self.save_parameters:
@@ -254,25 +271,21 @@ class Server:
     def avg_all_parameters(self):
         # Average all client parameters
         for layer, state_dicts in enumerate(self.all_model_parameters):
-            avg_state_dict = {}
+            all_layer_client_size = self.all_client_sizes[layer]
             num_models = len(state_dicts)
+            if num_models == 0:
+                return
+
+            self.avg_state_dict[layer] = state_dicts[0]
 
             for key in state_dicts[0].keys():
-                if state_dicts[0][key].dtype == torch.long:
-                    avg_state_dict[key] = state_dicts[0][key].float()
+                if state_dicts[0][key].dtype != torch.long:
+                    self.avg_state_dict[layer][key] = sum(state_dicts[i][key] * all_layer_client_size[i]
+                                                          for i in range(num_models)) / sum(all_layer_client_size)
                 else:
-                    avg_state_dict[key] = state_dicts[0][key].clone()
+                    self.avg_state_dict[layer][key] = sum(state_dicts[i][key] * all_layer_client_size[i]
+                                                          for i in range(num_models)) // sum(all_layer_client_size)
 
-                for i in range(1, num_models):
-                    if state_dicts[i][key].dtype == torch.long:
-                        avg_state_dict[key] += state_dicts[i][key].float()
-                    else:
-                        avg_state_dict[key] += state_dicts[i][key]
-
-                avg_state_dict[key] /= num_models
-
-                if state_dicts[0][key].dtype == torch.long:
-                    avg_state_dict[key] = avg_state_dict[key].long()
-
-            # Save to files
-            torch.save(avg_state_dict, f'{self.model_name}_{layer + 1}.pth')
+    def save_all_state_dict(self):
+        for layer, state_dicts in enumerate(self.avg_state_dict):
+            torch.save(state_dicts, f'{self.model_name}_{layer + 1}.pth')

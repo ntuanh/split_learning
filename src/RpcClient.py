@@ -70,7 +70,8 @@ class RpcClient:
             control_count = self.response["control_count"]
 
             # Start training
-            self.train_func(self.model, control_count, batch_size, lr, momentum, validation, label_count, num_layers)
+            result, size = self.train_func(self.model, control_count, batch_size, lr, momentum,
+                                           validation, label_count, num_layers)
 
             # Stop training, then send parameters to server
             model_state_dict = self.model.state_dict()
@@ -78,6 +79,7 @@ class RpcClient:
                 for key in model_state_dict:
                     model_state_dict[key] = model_state_dict[key].to('cpu')
             data = {"action": "UPDATE", "client_id": self.client_id, "layer_id": self.layer_id,
+                    "result": result, "size": size,
                     "message": "Sent parameters to Server", "parameters": model_state_dict}
             src.Log.print_with_color("[>>>] Client sent parameters to server", "red")
             self.send_to_server(data)
