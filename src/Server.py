@@ -5,14 +5,15 @@ import pickle
 import sys
 import yaml
 import numpy as np
-
 import torch
+import torch.nn as nn
 import requests
 
 from requests.auth import HTTPBasicAuth
 
 import src.Model
 import src.Log
+import src.Utils
 
 num_labels = 10
 
@@ -186,15 +187,17 @@ class Server:
                 self.current_clients = [0 for _ in range(len(self.total_clients))]
                 # Test
                 if self.save_parameters and self.validation and self.round_result:
-                    self.round_result = src.Model.test(self.model_name, self.cut_layers, self.avg_state_dict,
-                                                       self.logger)
-                # Start a new training round
-                if not self.round_result:
-                    src.Log.print_with_color("Training failed!", "yellow")
+                    state_dict_full = self.concatenate_state_dict()
+                    if not src.Model.test(self.model_name, state_dict_full, self.logger):
+                        src.Log.print_with_color("Training failed!", "yellow")
+                    else:
+                        # Save to files
+                        torch.save(state_dict_full, f'{self.model_name}.pth')
+                        self.round -= 1
                 else:
-                    # Save to files
-                    self.save_all_state_dict()
                     self.round -= 1
+
+                # Start a new training round
                 self.round_result = True
 
                 if self.round > 0:
@@ -212,9 +215,12 @@ class Server:
 
     def notify_clients(self, start=True, register=True):
         # Send message to clients when consumed all clients
+        klass = getattr(src.Model, self.model_name)
+        full_model = klass()
+        full_model = nn.Sequential(*nn.ModuleList(full_model.children()))
         for (client_id, layer_id) in self.list_clients:
             # Read parameters file
-            filepath = f'{self.model_name}_{layer_id}.pth'
+            filepath = f'{self.model_name}.pth'
             state_dict = None
 
             if start:
@@ -227,7 +233,17 @@ class Server:
 
                 if self.load_parameters and register:
                     if os.path.exists(filepath):
-                        state_dict = torch.load(filepath, weights_only=False)
+                        full_state_dict = torch.load(filepath, weights_only=True)
+                        full_model.load_state_dict(full_state_dict)
+
+                        if layer_id == 1:
+                            model_part = nn.Sequential(*nn.ModuleList(full_model.children())[:layers[1]])
+                        elif layer_id == len(self.total_clients):
+                            model_part = nn.Sequential(*nn.ModuleList(full_model.children())[layers[0]:])
+                        else:
+                            model_part = nn.Sequential(*nn.ModuleList(full_model.children())[layers[0]:layers[1]])
+
+                        state_dict = model_part.state_dict()
                         src.Log.print_with_color("Model loaded successfully.", "green")
                     else:
                         src.Log.print_with_color(f"File {filepath} does not exist.", "yellow")
@@ -286,6 +302,10 @@ class Server:
                     self.avg_state_dict[layer][key] = sum(state_dicts[i][key] * all_layer_client_size[i]
                                                           for i in range(num_models)) // sum(all_layer_client_size)
 
-    def save_all_state_dict(self):
-        for layer, state_dicts in enumerate(self.avg_state_dict):
-            torch.save(state_dicts, f'{self.model_name}_{layer + 1}.pth')
+    def concatenate_state_dict(self):
+        state_dict_full = {}
+        for i, state_dicts in enumerate(self.avg_state_dict):
+            if i > 0:
+                state_dicts = src.Utils.change_state_dict(state_dicts, self.cut_layers[i - 1])
+            state_dict_full.update(state_dicts)
+        return state_dict_full
