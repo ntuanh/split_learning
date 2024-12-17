@@ -14,6 +14,7 @@ from requests.auth import HTTPBasicAuth
 import src.Model
 import src.Log
 import src.Utils
+import src.Validation
 
 num_labels = 10
 
@@ -77,7 +78,6 @@ class Server:
         self.lr = config["learning"]["learning-rate"]
         self.momentum = config["learning"]["momentum"]
         self.control_count = config["learning"]["control-count"]
-        self.client_validation = config["learning"]["validation"]
 
         log_path = config["log_path"]
         self.label_count = [5000 // self.total_clients[0] for _ in range(num_labels)]
@@ -188,7 +188,7 @@ class Server:
                 # Test
                 if self.save_parameters and self.validation and self.round_result:
                     state_dict_full = self.concatenate_state_dict()
-                    if not src.Model.test(self.model_name, state_dict_full, self.logger):
+                    if not src.Validation.test(self.model_name, state_dict_full, self.logger):
                         src.Log.print_with_color("Training failed!", "yellow")
                     else:
                         # Save to files
@@ -259,7 +259,6 @@ class Server:
                             "batch_size": self.batch_size,
                             "lr": self.lr,
                             "momentum": self.momentum,
-                            "validation": self.client_validation,
                             "label_count": self.label_count}
             else:
                 src.Log.print_with_color(f"[>>>] Sent stop training request to client {client_id}", "red")

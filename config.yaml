@@ -26,4 +26,3 @@ learning:
   momentum: 0.5
   batch-size: 128
   control-count: 3
-  validation: False

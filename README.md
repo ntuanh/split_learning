@@ -102,7 +102,6 @@ learning:
   momentum: 0.5
   batch-size: 256
   control-count: 3    # control count on client
-  validation: False   # run validate on client side
 ```
 
 This configuration is use for server.
@@ -152,7 +151,7 @@ If the `*.pth` file exists, the server will read the file and send the parameter
 
 ---
 
-Version 1.8.0
+Version 2.0.0
 
 The application is under development...
 

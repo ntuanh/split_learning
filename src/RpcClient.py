@@ -1,7 +1,13 @@
 import time
 import pickle
 import pika
+import random
+import torch
+import torchvision
+import torchvision.transforms as transforms
+
 from torch import nn
+from collections import defaultdict
 
 import src.Log
 import src.Model
@@ -22,6 +28,24 @@ class RpcClient:
         self.response = None
         self.model = None
         self.connect()
+
+        self.train_set = None
+        self.label_to_indices = None
+        if self.layer_id == 1:
+            # Read and load dataset
+            transform_train = transforms.Compose([
+                transforms.RandomCrop(32, padding=4),
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
+                transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+            ])
+
+            self.train_set = torchvision.datasets.CIFAR10(
+                root='./data', train=True, download=True, transform=transform_train)
+
+            self.label_to_indices = defaultdict(list)
+            for idx, (_, label) in enumerate(self.train_set):
+                self.label_to_indices[label].append(idx)
 
     def wait_response(self):
         status = True
@@ -66,12 +90,20 @@ class RpcClient:
             batch_size = self.response["batch_size"]
             lr = self.response["lr"]
             momentum = self.response["momentum"]
-            validation = self.response["validation"]
             control_count = self.response["control_count"]
 
             # Start training
-            result, size = self.train_func(self.model, control_count, batch_size, lr, momentum,
-                                           validation, label_count, num_layers)
+            if self.layer_id == 1:
+                selected_indices = []
+                for label, count in enumerate(label_count):
+                    selected_indices.extend(random.sample(self.label_to_indices[label], count))
+
+                subset = torch.utils.data.Subset(self.train_set, selected_indices)
+                train_loader = torch.utils.data.DataLoader(subset, batch_size=batch_size, shuffle=True)
+
+                result, size = self.train_func(self.model, lr, momentum, num_layers, control_count, train_loader)
+            else:
+                result, size = self.train_func(self.model, lr, momentum, num_layers, control_count)
 
             # Stop training, then send parameters to server
             model_state_dict = self.model.state_dict()

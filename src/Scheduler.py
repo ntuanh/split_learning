@@ -1,27 +1,25 @@
 import time
 import uuid
 import pickle
-import random
-import numpy as np
 from tqdm import tqdm
-from collections import defaultdict
 
 import torch
 import torch.optim as optim
-import torchvision
-import torchvision.transforms as transforms
 import torch.nn as nn
 
 import src.Log
 
 
 class Scheduler:
-    def __init__(self, client_id, layer_id, channel, device):
+    def __init__(self, client_id, layer_id, channel, device, event_time=False):
         self.client_id = client_id
         self.layer_id = layer_id
         self.channel = channel
         self.device = device
         self.data_count = 0
+
+        self.event_time = event_time
+        self.time_event = []
 
     def send_intermediate_output(self, data_id, output, labels, trace, test=False):
         forward_queue_name = f'intermediate_queue_{self.layer_id}'
@@ -79,41 +77,7 @@ class Scheduler:
                                    routing_key='rpc_queue',
                                    body=pickle.dumps(message))
 
-    def train_on_first_layer(self, model, control_count, batch_size, lr, momentum, validation, label_count):
-        # Read and load dataset
-        transform_train = transforms.Compose([
-            transforms.RandomCrop(32, padding=4),
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
-        ])
-
-        transform_test = transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
-        ])
-
-        train_set = torchvision.datasets.CIFAR10(
-            root='./data', train=True, download=True, transform=transform_train)
-
-        if validation:
-            test_set = torchvision.datasets.CIFAR10(
-                root='./data', train=False, download=True, transform=transform_test)
-            test_loader = torch.utils.data.DataLoader(
-                test_set, batch_size=batch_size, shuffle=False)
-        else:
-            test_loader = None
-
-        label_to_indices = defaultdict(list)
-        for idx, (_, label) in enumerate(train_set):
-            label_to_indices[label].append(idx)
-
-        selected_indices = []
-        for label, count in enumerate(label_count):
-            selected_indices.extend(random.sample(label_to_indices[label], count))
-
-        subset = torch.utils.data.Subset(train_set, selected_indices)
-        train_loader = torch.utils.data.DataLoader(subset, batch_size=batch_size, shuffle=True)
+    def train_on_first_layer(self, model, lr, momentum, control_count=5, train_loader=None):
         optimizer = optim.SGD(model.parameters(), lr=lr, momentum=momentum)
         data_iter = iter(train_loader)
 
@@ -134,6 +98,8 @@ class Scheduler:
                 # Process gradient
                 method_frame, header_frame, body = self.channel.basic_get(queue=backward_queue_name, auto_ack=True)
                 if method_frame and body:
+                    if self.event_time:
+                        self.time_event.append(time.time())
                     num_backward += 1
                     received_data = pickle.loads(body)
                     gradient_numpy = received_data["data"]
@@ -144,12 +110,16 @@ class Scheduler:
                     output = model(data_input)
                     output.backward(gradient=gradient, retain_graph=True)
                     optimizer.step()
+                    if self.event_time:
+                        self.time_event.append(time.time())
                 else:
                     # speed control
                     if len(data_store) > control_count:
                         continue
                     # Process forward message
                     try:
+                        if self.event_time:
+                            self.time_event.append(time.time())
                         training_data, labels = next(data_iter)
                         training_data = training_data.to(self.device)
                         data_id = uuid.uuid4()
@@ -162,6 +132,8 @@ class Scheduler:
                         self.data_count += 1
                         # tqdm bar
                         pbar.update(1)
+                        if self.event_time:
+                            self.time_event.append(time.time())
 
                         self.send_intermediate_output(data_id, intermediate_output, labels, None)
 
@@ -170,40 +142,8 @@ class Scheduler:
                 if end_data and (num_forward == num_backward):
                     break
 
-            # validation
-            num_forward = 0
-            num_backward = 0
-            all_labels = np.array([])
-            all_vals = np.array([])
-            if test_loader:
-                for (testing_data, labels) in test_loader:
-                    testing_data = testing_data.to(self.device)
-                    data_id = uuid.uuid4()
-                    intermediate_output = model(testing_data)
-
-                    # Send to next layers
-                    num_forward += 1
-
-                    self.send_intermediate_output(data_id, intermediate_output, labels, None, True)
-
-                while True:
-                    method_frame, header_frame, body = self.channel.basic_get(queue=backward_queue_name, auto_ack=True)
-                    if method_frame and body:
-                        num_backward += 1
-                        received_data = pickle.loads(body)
-                        test_data = received_data["data"]
-
-                        all_labels = np.append(all_labels, test_data[0])
-                        all_vals = np.append(all_vals, test_data[1])
-
-                    if num_forward == num_backward:
-                        break
-
-                notify_data = {"action": "NOTIFY", "client_id": self.client_id, "layer_id": self.layer_id,
-                               "message": "Finish training!", "validate": [all_labels, all_vals]}
-            else:
-                notify_data = {"action": "NOTIFY", "client_id": self.client_id, "layer_id": self.layer_id,
-                               "message": "Finish training!", "validate": None}
+            notify_data = {"action": "NOTIFY", "client_id": self.client_id, "layer_id": self.layer_id,
+                           "message": "Finish training!", "validate": None}
 
         # Finish epoch training, send notify to server
         src.Log.print_with_color("[>>>] Finish training!", "red")
@@ -241,31 +181,27 @@ class Scheduler:
                 trace = received_data["trace"]
                 data_id = received_data["data_id"]
                 labels = received_data["label"].to(self.device)
-                test = received_data["test"]
 
                 intermediate_output = torch.tensor(intermediate_output_numpy, requires_grad=True).to(self.device)
 
-                if test:
-                    output = model(intermediate_output)
-                    labels = labels.cpu().numpy().flatten()
-                    pred = output.data.max(1, keepdim=True)[1]
-                    pred = pred.cpu().numpy().flatten()
-                    self.send_validation(data_id, [labels, pred], trace)
-                else:
-                    output = model(intermediate_output)
-                    loss = criterion(output, labels)
-                    print(f"Loss: {loss.item()}")
-                    if torch.isnan(loss).any():
-                        src.Log.print_with_color("NaN detected in loss", "yellow")
-                        result = False
+                if self.event_time:
+                    self.time_event.append(time.time())
+                output = model(intermediate_output)
+                loss = criterion(output, labels)
+                print(f"Loss: {loss.item()}")
+                if torch.isnan(loss).any():
+                    src.Log.print_with_color("NaN detected in loss", "yellow")
+                    result = False
 
-                    intermediate_output.retain_grad()
-                    loss.backward()
-                    optimizer.step()
-                    self.data_count += 1
+                intermediate_output.retain_grad()
+                loss.backward()
+                optimizer.step()
+                self.data_count += 1
 
-                    gradient = intermediate_output.grad
-                    self.send_gradient(data_id, gradient, trace)  # 1F1B
+                gradient = intermediate_output.grad
+                if self.event_time:
+                    self.time_event.append(time.time())
+                self.send_gradient(data_id, gradient, trace)  # 1F1B
             # Check training process
             else:
                 broadcast_queue_name = f'reply_{self.client_id}'
@@ -276,7 +212,7 @@ class Scheduler:
                     if received_data["action"] == "PAUSE":
                         return result
 
-    def train_on_middle_layer(self, model, control_count, lr, momentum):
+    def train_on_middle_layer(self, model, lr, momentum, control_count=5):
         optimizer = optim.SGD(model.parameters(), lr=lr, momentum=momentum)
 
         forward_queue_name = f'intermediate_queue_{self.layer_id - 1}'
@@ -294,6 +230,8 @@ class Scheduler:
             # Process gradient
             method_frame, header_frame, body = self.channel.basic_get(queue=backward_queue_name, auto_ack=True)
             if method_frame and body:
+                if self.event_time:
+                    self.time_event.append(time.time())
                 received_data = pickle.loads(body)
                 gradient_numpy = received_data["data"]
                 gradient = torch.tensor(gradient_numpy).to(self.device)
@@ -307,10 +245,14 @@ class Scheduler:
                 optimizer.step()
 
                 gradient = data_input.grad
+                if self.event_time:
+                    self.time_event.append(time.time())
                 self.send_gradient(data_id, gradient, trace)
             else:
                 method_frame, header_frame, body = self.channel.basic_get(queue=forward_queue_name, auto_ack=True)
                 if method_frame and body:
+                    if self.event_time:
+                        self.time_event.append(time.time())
                     received_data = pickle.loads(body)
                     intermediate_output_numpy = received_data["data"]
                     trace = received_data["trace"]
@@ -325,6 +267,8 @@ class Scheduler:
                     output = output.detach().requires_grad_(True)
 
                     self.data_count += 1
+                    if self.event_time:
+                        self.time_event.append(time.time())
                     self.send_intermediate_output(data_id, output, labels, trace, test)
                     # speed control
                     if len(data_store) > control_count:
@@ -339,12 +283,14 @@ class Scheduler:
                     if received_data["action"] == "PAUSE":
                         return True
 
-    def train_on_device(self, model, control_count, batch_size, lr, momentum, validation, label_count, num_layers):
+    def train_on_device(self, model, lr, momentum, num_layers, control_count, train_loader=None):
         self.data_count = 0
         if self.layer_id == 1:
-            result = self.train_on_first_layer(model, control_count, batch_size, lr, momentum, validation, label_count)
+            result = self.train_on_first_layer(model, lr, momentum, control_count, train_loader)
         elif self.layer_id == num_layers:
             result = self.train_on_last_layer(model, lr, momentum)
         else:
-            result = self.train_on_middle_layer(model, control_count, lr, momentum)
+            result = self.train_on_middle_layer(model, lr, momentum, control_count)
+        if self.event_time:
+            src.Log.print_with_color(f"Training time events {self.time_event}", "yellow")
         return result, self.data_count
