@@ -35,10 +35,6 @@ test_round = 100
 if args.round:
     test_round = args.round
 
-full_model = []
-for sub_model in nn.Sequential(*nn.ModuleList(model.children())):
-    full_model.append(sub_model)
-
 transform_test = transforms.Compose([
     transforms.ToTensor(),
     transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
@@ -60,6 +56,19 @@ for (data, target) in test_loader:
     break
 
 if __name__ == '__main__':
+    full_model = []
+    for sub_model in nn.Sequential(*nn.ModuleList(model.children())):
+        full_model.append(sub_model)
+
+    weight_backward = []
+    for name, module in model.named_children():
+        # print(f"Name: {name}, Module: {module}")
+        if 'Conv2d' in str(module):
+            weight_backward.append(3)
+        else:
+            weight_backward.append(2)
+    # print(weight_backward)
+
     for i in range(test_round):
         data = train_data
         times = []
@@ -75,7 +84,10 @@ if __name__ == '__main__':
 
     forward_time = np.array(forward_time)
     forward_time = np.average(forward_time, axis=0)
+    backward_time = forward_time * np.array(weight_backward)
     forward_time = forward_time.tolist()
+    backward_time = backward_time.tolist()
 
     print(f"List of forward training time = {forward_time} nano second")
+    print(f"List of backward training time = {backward_time} nano second")
     print(f"List of data size = {data_size} bytes")
