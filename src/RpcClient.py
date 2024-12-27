@@ -68,7 +68,8 @@ class RpcClient:
             cut_layers = self.response['layers']
             label_count = self.response['label_count']
             num_layers = self.response['num_layers']
-
+            if label_count is not None:
+                src.Log.print_with_color(f"Label distribution of client: {label_count.tolist()}", "yellow")
             if self.model is None:
                 klass = getattr(src.Model, model_name)
                 full_model = klass()

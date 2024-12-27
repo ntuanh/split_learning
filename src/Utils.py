@@ -1,3 +1,7 @@
+import numpy as np
+import random
+
+
 def change_state_dict(state_dicts, i):
     def change_name(name):
         parts = name.split(".", 1)
@@ -10,3 +14,12 @@ def change_state_dict(state_dicts, i):
         new_state_dict[new_key] = value
     return new_state_dict
 
+
+def non_iid_rate(num_data, rate):
+    result = []
+    for _ in range(num_data):
+        if rate < random.random():
+            result.append(0)
+        else:
+            result.append(1)
+    return np.array(result)

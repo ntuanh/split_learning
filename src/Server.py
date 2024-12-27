@@ -1,5 +1,6 @@
 import os
 import time
+import random
 import pika
 import pickle
 import sys
@@ -78,9 +79,19 @@ class Server:
         self.lr = config["learning"]["learning-rate"]
         self.momentum = config["learning"]["momentum"]
         self.control_count = config["learning"]["control-count"]
+        self.data_distribution = config["server"]["data-distribution"]
+
+        # Data non-iid
+        self.data_mode = config["server"]["data-mode"]
+        self.data_range = self.data_distribution["num-data-range"]
+        self.non_iid_rate = self.data_distribution["non-iid-rate"]
+        self.refresh_each_round = self.data_distribution["refresh-each-round"]
+        self.random_seed = config["server"]["random-seed"]
+
+        if self.random_seed:
+            random.seed(self.random_seed)
 
         log_path = config["log_path"]
-        self.label_count = [5000 // self.total_clients[0] for _ in range(num_labels)]
         self.time_start = None
         self.time_stop = None
 
@@ -102,6 +113,11 @@ class Server:
         self.all_client_sizes = [[] for _ in range(len(self.total_clients))]
         self.all_labels = np.array([])
         self.all_vals = np.array([])
+        self.label_counts = None
+        self.non_iid_label = None
+        if not self.refresh_each_round:
+            self.non_iid_label = [src.Utils.non_iid_rate(num_labels,
+                                                         self.non_iid_rate) for _ in range(self.total_clients[0])]
 
         self.channel.basic_qos(prefetch_count=1)
         self.channel.basic_consume(queue='rpc_queue', on_message_callback=self.on_request)
@@ -109,6 +125,19 @@ class Server:
         self.logger.log_info("Application start")
 
         src.Log.print_with_color(f"Server is waiting for {self.total_clients} clients.", "green")
+
+    def distribution(self):
+        if self.data_mode == "even":
+            self.label_counts = np.array(
+                [[5000 // self.total_clients[0] for _ in range(num_labels)] for _ in range(self.total_clients[0])])
+        else:
+            if self.refresh_each_round:
+                self.non_iid_label = [src.Utils.non_iid_rate(num_labels, self.non_iid_rate) for _ in
+                                      range(self.total_clients[0])]
+            self.label_counts = [np.array([random.randint(int(self.data_range[0] // self.non_iid_rate),
+                                                          int(self.data_range[1] // self.non_iid_rate))
+                                 for _ in range(num_labels)]) *
+                                 self.non_iid_label[i] for i in range(self.total_clients[0])]
 
     def on_request(self, ch, method, props, body):
         message = pickle.loads(body)
@@ -127,6 +156,7 @@ class Server:
 
             # If consumed all clients - Register for first time
             if self.register_clients == self.total_clients:
+                self.distribution()
                 src.Log.print_with_color("All clients are connected. Sending notifications.", "green")
                 src.Log.print_with_color(f"Start training round {self.num_round - self.round + 1}", "yellow")
                 self.notify_clients()
@@ -141,7 +171,7 @@ class Server:
 
             if self.first_layer_clients == self.total_clients[0]:
                 self.first_layer_clients = 0
-                self.time_stop = time.time_ns()
+                self.time_stop = time.time()
 
                 t = self.time_stop - self.time_start
                 self.logger.log_info(f"Training Time: {t} ns.")
@@ -163,6 +193,7 @@ class Server:
                                "parameters": None}
                     self.send_to_response(client_id, pickle.dumps(message))
         elif action == "UPDATE":
+            self.distribution()
             data_message = message["message"]
             result = message["result"]
             src.Log.print_with_color(f"[<<<] Received message from client: {data_message}", "blue")
@@ -249,23 +280,37 @@ class Server:
                         src.Log.print_with_color(f"File {filepath} does not exist.", "yellow")
 
                 src.Log.print_with_color(f"[>>>] Sent start training request to client {client_id}", "red")
-                response = {"action": "START",
-                            "message": "Server accept the connection!",
-                            "parameters": state_dict,
-                            "num_layers": len(self.total_clients),
-                            "layers": layers,
-                            "model_name": self.model_name,
-                            "control_count": self.control_count,
-                            "batch_size": self.batch_size,
-                            "lr": self.lr,
-                            "momentum": self.momentum,
-                            "label_count": self.label_count}
+                if layer_id == 1:
+                    response = {"action": "START",
+                                "message": "Server accept the connection!",
+                                "parameters": state_dict,
+                                "num_layers": len(self.total_clients),
+                                "layers": layers,
+                                "model_name": self.model_name,
+                                "control_count": self.control_count,
+                                "batch_size": self.batch_size,
+                                "lr": self.lr,
+                                "momentum": self.momentum,
+                                "label_count": self.label_counts.pop()}
+                else:
+                    response = {"action": "START",
+                                "message": "Server accept the connection!",
+                                "parameters": state_dict,
+                                "num_layers": len(self.total_clients),
+                                "layers": layers,
+                                "model_name": self.model_name,
+                                "control_count": self.control_count,
+                                "batch_size": self.batch_size,
+                                "lr": self.lr,
+                                "momentum": self.momentum,
+                                "label_count": None}
+
             else:
                 src.Log.print_with_color(f"[>>>] Sent stop training request to client {client_id}", "red")
                 response = {"action": "STOP",
                             "message": "Stop training!",
                             "parameters": None}
-            self.time_start = time.time_ns()
+            self.time_start = time.time()
             self.send_to_response(client_id, pickle.dumps(response))
 
     def start(self):
