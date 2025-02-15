@@ -23,3 +23,15 @@ def non_iid_rate(num_data, rate):
         else:
             result.append(1)
     return np.array(result)
+
+
+def num_client_in_cluster(client_cluster_label):
+    if not client_cluster_label:
+        return []
+    max_val = max(client_cluster_label)
+    count_list = [0] * (max_val + 1)
+    for num in client_cluster_label:
+        count_list[num] += 1
+    count_list = [[x] for x in count_list]
+    return count_list
+

@@ -68,8 +68,9 @@ class RpcClient:
             cut_layers = self.response['layers']
             label_count = self.response['label_count']
             num_layers = self.response['num_layers']
+            cluster = self.response['cluster']
             if label_count is not None:
-                src.Log.print_with_color(f"Label distribution of client: {label_count.tolist()}", "yellow")
+                src.Log.print_with_color(f"Label distribution of client: {label_count}", "yellow")
             if self.model is None:
                 klass = getattr(src.Model, model_name)
                 full_model = klass()
@@ -102,9 +103,9 @@ class RpcClient:
                 subset = torch.utils.data.Subset(self.train_set, selected_indices)
                 train_loader = torch.utils.data.DataLoader(subset, batch_size=batch_size, shuffle=True)
 
-                result, size = self.train_func(self.model, lr, momentum, num_layers, control_count, train_loader)
+                result, size = self.train_func(self.model, lr, momentum, num_layers, control_count, train_loader, cluster)
             else:
-                result, size = self.train_func(self.model, lr, momentum, num_layers, control_count)
+                result, size = self.train_func(self.model, lr, momentum, num_layers, control_count, cluster)
 
             # Stop training, then send parameters to server
             model_state_dict = self.model.state_dict()
@@ -112,7 +113,7 @@ class RpcClient:
                 for key in model_state_dict:
                     model_state_dict[key] = model_state_dict[key].to('cpu')
             data = {"action": "UPDATE", "client_id": self.client_id, "layer_id": self.layer_id,
-                    "result": result, "size": size,
+                    "result": result, "size": size, "cluster": cluster,
                     "message": "Sent parameters to Server", "parameters": model_state_dict}
             src.Log.print_with_color("[>>>] Client sent parameters to server", "red")
             self.send_to_server(data)
