@@ -27,6 +27,7 @@ class RpcClient:
         self.connection = None
         self.response = None
         self.model = None
+        self.cluster = None
         self.connect()
 
         self.train_set = None
@@ -68,7 +69,8 @@ class RpcClient:
             cut_layers = self.response['layers']
             label_count = self.response['label_count']
             num_layers = self.response['num_layers']
-            cluster = self.response['cluster']
+            if self.response['cluster'] is not None:
+                self.cluster = self.response['cluster']
             if label_count is not None:
                 src.Log.print_with_color(f"Label distribution of client: {label_count}", "yellow")
             if self.model is None:
@@ -103,9 +105,9 @@ class RpcClient:
                 subset = torch.utils.data.Subset(self.train_set, selected_indices)
                 train_loader = torch.utils.data.DataLoader(subset, batch_size=batch_size, shuffle=True)
 
-                result, size = self.train_func(self.model, lr, momentum, num_layers, control_count, train_loader, cluster)
+                result, size = self.train_func(self.model, lr, momentum, num_layers, control_count, train_loader, self.cluster)
             else:
-                result, size = self.train_func(self.model, lr, momentum, num_layers, control_count, cluster)
+                result, size = self.train_func(self.model, lr, momentum, num_layers, control_count, None, self.cluster)
 
             # Stop training, then send parameters to server
             model_state_dict = self.model.state_dict()
@@ -113,7 +115,7 @@ class RpcClient:
                 for key in model_state_dict:
                     model_state_dict[key] = model_state_dict[key].to('cpu')
             data = {"action": "UPDATE", "client_id": self.client_id, "layer_id": self.layer_id,
-                    "result": result, "size": size, "cluster": cluster,
+                    "result": result, "size": size, "cluster": self.cluster,
                     "message": "Sent parameters to Server", "parameters": model_state_dict}
             src.Log.print_with_color("[>>>] Client sent parameters to server", "red")
             self.send_to_server(data)

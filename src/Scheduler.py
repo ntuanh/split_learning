@@ -22,7 +22,7 @@ class Scheduler:
         self.time_event_forward = []
         self.time_event_backward = []
 
-    def send_intermediate_output(self, data_id, output, labels, trace, cluster, test=False):
+    def send_intermediate_output(self, data_id, output, labels, trace, test=False, cluster=None):
         forward_queue_name = f'intermediate_queue_{self.layer_id}_{cluster}'
         self.channel.queue_declare(forward_queue_name, durable=False)
 
@@ -136,7 +136,7 @@ class Scheduler:
                         # tqdm bar
                         pbar.update(1)
 
-                        self.send_intermediate_output(data_id, intermediate_output, labels, None, cluster)
+                        self.send_intermediate_output(data_id, intermediate_output, labels, trace=None, test=False, cluster=cluster)
 
                     except StopIteration:
                         end_data = True
@@ -273,7 +273,7 @@ class Scheduler:
                     self.data_count += 1
                     if self.event_time:
                         self.time_event_forward.append(time.time())
-                    self.send_intermediate_output(data_id, output, labels, trace, test)
+                    self.send_intermediate_output(data_id, output, labels, trace, test, cluster=cluster)
                     # speed control
                     if len(data_store) > control_count:
                         continue
@@ -292,9 +292,9 @@ class Scheduler:
         if self.layer_id == 1:
             result = self.train_on_first_layer(model, lr, momentum, control_count, train_loader, cluster)
         elif self.layer_id == num_layers:
-            result = self.train_on_last_layer(model, lr, momentum, cluster)
+            result = self.train_on_last_layer(model, lr, momentum, cluster=cluster)
         else:
-            result = self.train_on_middle_layer(model, lr, momentum, control_count, cluster)
+            result = self.train_on_middle_layer(model, lr, momentum, control_count, cluster=cluster)
         if self.event_time:
             src.Log.print_with_color(f"Forward training time events {self.time_event_forward}", "yellow")
             src.Log.print_with_color(f"Backward Training time events {self.time_event_backward}", "yellow")
