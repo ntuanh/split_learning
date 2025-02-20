@@ -9,6 +9,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import requests
+import copy
 
 from requests.auth import HTTPBasicAuth
 
@@ -85,6 +86,9 @@ class Server:
 
         # Cluster
         self.client_cluster_config = config["server"]["client-cluster"]
+        self.mode_cluster = self.client_cluster_config["enable"]
+        if not self.mode_cluster:
+            self.local_round = 1
 
         # Data non-iid
         self.data_mode = config["server"]["data-mode"]
@@ -156,10 +160,10 @@ class Server:
             #                      for _ in range(num_labels)]) *
             #                      self.non_iid_label[i] for i in range(self.total_clients[0])]
 
-            self.label_counts = [[500, 500, 500, 0, 0, 0, 0, 0, 0, 0],
-                                 [0, 0, 0, 500, 500, 500, 0, 0, 0, 0],
-                                 [0, 0, 0, 0, 0, 0, 500, 500, 500, 0],
-                                 [0, 500, 0, 500, 0, 500, 0, 0, 0, 0]]
+            self.label_counts = [[500, 500, 500, 500, 500, 0, 0, 0, 0, 0],
+                                 [500, 500, 500, 500, 500, 0, 0, 0, 0, 0],
+                                 [0, 0, 0, 0, 0, 500, 500, 500, 500, 500],
+                                 [0, 0, 0, 0, 0, 500, 500, 500, 500, 500]]
 
     def on_request(self, ch, method, props, body):
         message = pickle.loads(body)
@@ -296,9 +300,13 @@ class Server:
         ch.basic_ack(delivery_tag=method.delivery_tag)
 
     def notify_clients(self, start=True, register=True, cluster=None):
-        new_client_cluster_label = self.client_labels
-        new_client_cluster_label = new_client_cluster_label.tolist()
-        new_name_cluster = [0, 1]
+        new_client_cluster_label = copy.copy(self.client_labels)
+        # new_client_cluster_label = new_client_cluster_label.tolist()
+        if self.mode_cluster:
+            new_name_cluster = [0, 1]
+        else:
+            new_name_cluster = [0, 0]
+
         if cluster is not None:
             for (client_id, layer_id) in self.id_client_each_cluster[cluster]:
                 if layer_id == 1:
@@ -406,13 +414,18 @@ class Server:
                 self.send_to_response(client_id, pickle.dumps(response))
 
     def cluster_client(self, cluster_layer_remaining):
-        num_cluster, labels, _ = clustering_algorithm(self.label_counts, self.client_cluster_config)
+        # num_cluster, labels, _ = clustering_algorithm(self.label_counts, self.client_cluster_config)
+        num_cluster = 2
+        labels = [0, 0, 1, 1]
         self.num_cluster = num_cluster
         self.local_model_parameters = [self.all_model_parameters for _ in range(self.num_cluster)]
         self.local_client_sizes = [self.all_client_sizes for _ in range(self.num_cluster)]
         self.local_avg_state_dict = [self.avg_state_dict for _ in range(self.num_cluster)]
         self.id_client_each_cluster = [[] for _ in range(self.num_cluster)]
-        self.client_labels = labels
+        if self.mode_cluster:
+            self.client_labels = labels
+        else:
+            self.client_labels = [0 for _ in range(len(labels))]
         self.infor_cluster = src.Utils.num_client_in_cluster(labels)
         for layer in cluster_layer_remaining:
             for idx, label in enumerate(layer):

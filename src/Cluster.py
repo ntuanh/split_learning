@@ -52,7 +52,6 @@ def clustering_algorithm(label_counts, client_cluster_config):
 def clustering_AffinityPropagation(label_counts, config):
     damping = config['damping']
     max_iter = config['max_iter']
-
     affinity_propagation = AffinityPropagation(damping=damping, max_iter=max_iter)
     affinity_propagation.fit(label_counts)
 

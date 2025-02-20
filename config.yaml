@@ -3,7 +3,7 @@ server:
   local-round: 1
   global-round: 1
   cut_layers:
-    - 20
+    - 24
   clients:
     - 4
     - 2
@@ -28,7 +28,7 @@ server:
       max_iter: 1000
 
 rabbit:
-  address: 192.168.101.234
+  address: 192.168.101.91
   username: dai
   password: dai
 
