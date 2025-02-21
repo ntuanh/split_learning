@@ -1,7 +1,7 @@
 name: Split Learning
 server:
-  local-round: 1
-  global-round: 1
+  local-round: 5
+  global-round: 10
   cut_layers:
     - 24
   clients:
@@ -9,8 +9,8 @@ server:
     - 2
   model: VGG16
   parameters:
-    load: False
-    save: False
+    load: True
+    save: True
   validation: False
   data-mode: uneven
   data-distribution:
@@ -22,6 +22,7 @@ server:
   random-seed: 1
   client-cluster:
     enable: True
+    special: True
     cluster: AffinityPropagation
     AffinityPropagation:
       damping: 0.9
@@ -35,7 +36,7 @@ rabbit:
 log_path: .
 
 learning:
-  learning-rate: 0.01
+  learning-rate: 0.05
   momentum: 0.5
   batch-size: 128
   control-count: 3
