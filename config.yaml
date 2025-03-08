@@ -1,7 +1,7 @@
 name: Split Learning
 server:
-  local-round: 5
-  global-round: 10
+  local-round: 1
+  global-round: 2
   cut_layers:
     - 24
   clients:
@@ -11,8 +11,8 @@ server:
   parameters:
     load: True
     save: True
-  validation: False
-  data-mode: uneven
+  validation: True
+  data-mode: even
   data-distribution:
     num-data-range:
       - 0
@@ -21,22 +21,23 @@ server:
     refresh-each-round: True
   random-seed: 1
   client-cluster:
-    enable: True
-    special: True
+    enable: False
+    syn-cut-layers: False
+    special: False
     cluster: AffinityPropagation
     AffinityPropagation:
       damping: 0.9
       max_iter: 1000
 
 rabbit:
-  address: 192.168.101.91
-  username: dai
-  password: dai
+  address: 127.0.0.1
+  username: admin
+  password: admin
 
 log_path: .
 
 learning:
-  learning-rate: 0.05
+  learning-rate: 0.01
   momentum: 0.5
   batch-size: 128
   control-count: 3

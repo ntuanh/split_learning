@@ -1,61 +1,41 @@
 from sklearn.cluster import KMeans, AffinityPropagation
 from sklearn.metrics import silhouette_score
+import copy
+import numpy as np
+from src.Utils import num_client_in_cluster
 
 
-# def clustering_algorithm(label_counts, client_cluster_config):
-#     cluster_name = client_cluster_config['cluster']
-#     if cluster_name == 'KMeans':
-#         cluster_config = client_cluster_config['KMeans']
-#         return clustering_KMeans(label_counts, cluster_config)
-#     elif cluster_name == 'AffinityPropagation':
-#         cluster_config = client_cluster_config['AffinityPropagation']
-#         return clustering_AffinityPropagation(label_counts, cluster_config)
-#     else:
-#         raise ValueError(f"Cluster '{cluster_name}' algorithm not contain in Cluster processing.")
-
-def clustering_algorithm(label_counts, client_cluster_config):
-    return clustering_AffinityPropagation(label_counts, client_cluster_config["AffinityPropagation"])
-
-#
-# def clustering_KMeans(label_counts, config):
-#     mode = config['mode']
-#     if mode == 'auto':
-#         range_n_clusters = list(range(2, len(label_counts)))
-#         silhouette_avg_max = 0.0
-#         num_clusters = None
-#         labels = None
-#
-#         for k in range_n_clusters:
-#             kmeans = KMeans(n_clusters=k)
-#             cluster_labels = kmeans.fit_predict(label_counts)
-#
-#             silhouette_avg = silhouette_score(label_counts, cluster_labels)
-#             if silhouette_avg > silhouette_avg_max:
-#                 silhouette_avg_max = silhouette_avg
-#                 num_clusters = k
-#                 labels = kmeans.labels_
-#
-#         return num_clusters, labels, silhouette_avg_max
-#     elif mode.isnumeric():
-#         k = int(mode)
-#         if k > len(label_counts) or k < 1:
-#             raise ValueError(f"K = '{k}' is not valid.")
-#         else:
-#             kmeans = KMeans(n_clusters=k)
-#             labels = kmeans.labels_
-#
-#             return k, labels, None
-#     else:
-#         raise ValueError(f"KMeans mode '{mode}' is not valid.")
+def clustering_algorithm(list_performance, num, client_cluster_config):
+    return clustering_AffinityPropagation(list_performance, num, client_cluster_config["AffinityPropagation"])
 
 
-def clustering_AffinityPropagation(label_counts, config):
+def clustering_AffinityPropagation(list_performance, num, config):
+    label_counts = []
+    for i in list_performance:
+        if i != -1:
+            label_counts.append(i)
     damping = config['damping']
     max_iter = config['max_iter']
     affinity_propagation = AffinityPropagation(damping=damping, max_iter=max_iter)
-    affinity_propagation.fit(label_counts)
+    affinity_propagation.fit(np.array(label_counts).reshape(-1, 1))
 
-    cluster_centers_indices = affinity_propagation.cluster_centers_indices_
-    labels = affinity_propagation.labels_
+    # cluster_centers_indices = affinity_propagation.cluster_centers_indices_
+    # labels = affinity_propagation.labels_
+    # labels = labels.tolist()
+    labels = [0, 0, 1, 1]
+    if num == 2:
+        cluster_layer_2 = [0, 1]
+    else:
+        cluster_layer_2 = [0]
 
-    return len(cluster_centers_indices), labels, None
+    infor_cluster = num_client_in_cluster(labels)
+    infor_layer_2 = num_client_in_cluster(cluster_layer_2)
+    for i in range(len(infor_cluster)):
+        infor_cluster[i].append(infor_layer_2[i][0])
+    for idx, i in enumerate(list_performance):
+        if i != -1:
+            list_performance[idx] = labels.pop(0)
+        else:
+            list_performance[idx] = cluster_layer_2.pop()
+    list_cut_layer = [[24], [12]]
+    return list_performance, infor_cluster, 2, list_cut_layer
