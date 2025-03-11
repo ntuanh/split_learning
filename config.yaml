@@ -1,19 +1,18 @@
 name: Split Learning
 server:
-  num-round: 1
+  local-round: 1
+  global-round: 2
   cut_layers:
-    - 10
-    - 20
+    - 24
   clients:
-    - 1
-    - 1
-    - 1
+    - 4
+    - 2
   model: VGG16
   parameters:
-    load: False
-    save: False
-  validation: False
-  data-mode: uneven
+    load: True
+    save: True
+  validation: True
+  data-mode: even
   data-distribution:
     num-data-range:
       - 0
@@ -21,11 +20,19 @@ server:
     non-iid-rate: 0.5
     refresh-each-round: True
   random-seed: 1
+  client-cluster:
+    enable: False
+    syn-cut-layers: False
+    special: False
+    cluster: AffinityPropagation
+    AffinityPropagation:
+      damping: 0.9
+      max_iter: 1000
 
 rabbit:
-  address: 192.168.101.234
-  username: dai
-  password: dai
+  address: 127.0.0.1
+  username: admin
+  password: admin
 
 log_path: .
 

@@ -1,5 +1,35 @@
 import numpy as np
 import random
+import pika
+from requests.auth import HTTPBasicAuth
+import requests
+
+
+def delete_old_queues(address, username, password):
+    url = f'http://{address}:15672/api/queues'
+    response = requests.get(url, auth=HTTPBasicAuth(username, password))
+
+    if response.status_code == 200:
+        queues = response.json()
+
+        credentials = pika.PlainCredentials(username, password)
+        connection = pika.BlockingConnection(pika.ConnectionParameters(address, 5672, '/', credentials))
+        http_channel = connection.channel()
+
+        for queue in queues:
+            queue_name = queue['name']
+            if queue_name.startswith("reply") or queue_name.startswith("intermediate_queue") or queue_name.startswith(
+                    "gradient_queue") or queue_name.startswith("rpc_queue"):
+
+                http_channel.queue_delete(queue=queue_name)
+
+            else:
+                http_channel.queue_purge(queue=queue_name)
+
+        connection.close()
+        return True
+    else:
+        return False
 
 
 def change_state_dict(state_dicts, i):
@@ -23,3 +53,12 @@ def non_iid_rate(num_data, rate):
         else:
             result.append(1)
     return np.array(result)
+
+
+def num_client_in_cluster(client_cluster_label):
+    max_val = max(client_cluster_label)
+    count_list = [0] * (max_val + 1)
+    for num in client_cluster_label:
+        count_list[num] += 1
+    count_list = [[x] for x in count_list]
+    return count_list

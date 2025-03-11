@@ -41,7 +41,7 @@ transform_test = transforms.Compose([
 ])
 
 testset = torchvision.datasets.CIFAR10(
-    root='./data', train=False, download=False, transform=transform_test)
+    root='./data', train=False, download=True, transform=transform_test)
 test_loader = torch.utils.data.DataLoader(
     testset, batch_size=batch_size, shuffle=False, num_workers=2)
 
@@ -74,12 +74,12 @@ if __name__ == '__main__':
         times = []
         for sub_model in full_model:
             sub_model.train()
-            start = time.time_ns()
+            start = time.time()
             data = sub_model(data)
-            end = time.time_ns()
+            end = time.time()
             if i == 0:
                 data_size.append(data.nelement() * data.element_size())
-            times.append(end-start)
+            times.append((end-start) * 1e9)
         forward_time.append(times)
 
     forward_time = np.array(forward_time)
@@ -87,7 +87,7 @@ if __name__ == '__main__':
     backward_time = forward_time * np.array(weight_backward)
     forward_time = forward_time.tolist()
     backward_time = backward_time.tolist()
-
-    print(f"List of forward training time = {forward_time} nano second")
-    print(f"List of backward training time = {backward_time} nano second")
+    exe_time = result = [a + b for a, b in zip(forward_time, backward_time)]
+    print(f"List of execute training time = {exe_time} nano second")
+    print(f"Total time = {sum(exe_time)} nano second")
     print(f"List of data size = {data_size} bytes")
