@@ -35,6 +35,7 @@ rabbit:
   password: admin
 
 log_path: .
+debug_mode: True
 
 learning:
   learning-rate: 0.01

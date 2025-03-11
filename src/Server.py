@@ -139,10 +139,10 @@ class Server:
         self.channel.basic_qos(prefetch_count=1)
         self.reply_channel = self.connection.channel()
         self.channel.basic_consume(queue='rpc_queue', on_message_callback=self.on_request)
-        self.logger = src.Log.Logger(f"{log_path}/app.log")
-        self.logger.log_info("Application start")
 
-        src.Log.print_with_color(f"Server is waiting for {self.total_clients} clients.", "green")
+        debug_mode = config["debug_mode"]
+        self.logger = src.Log.Logger(f"{log_path}/app.log", debug_mode)
+        self.logger.log_info(f"Application start. Server is waiting for {self.total_clients} clients.")
 
     def distribution(self):
         if self.data_mode == "even":
@@ -188,7 +188,6 @@ class Server:
                 self.cluster_client()
                 print(self.list_cut_layers)
                 src.Log.print_with_color("All clients are connected. Sending notifications.", "green")
-                src.Log.print_with_color(f"Start training round {self.global_round - self.round + 1}", "yellow")
                 self.logger.log_info(f"Start training round {self.global_round - self.round + 1}")
                 self.notify_clients()
         elif action == "NOTIFY":
@@ -253,7 +252,7 @@ class Server:
                     if self.save_parameters and self.validation and self.round_result:
                         state_dict_full = self.concatenate_state_dict()
                         if not src.Validation.test(self.model_name, state_dict_full, self.logger):
-                            src.Log.print_with_color("Training failed!", "yellow")
+                            self.logger.log_warning("Training failed!")
                         else:
                             # Save to files
                             torch.save(state_dict_full, f'{self.model_name}.pth')
@@ -265,9 +264,8 @@ class Server:
                     self.round_result = True
 
                     if self.round > 0:
-                        src.Log.print_with_color(f"Start training round {self.global_round - self.round + 1}", "yellow")
+                        self.logger.log_info(f"Start training round {self.global_round - self.round + 1}")
                         if self.save_parameters:
-                            self.logger.log_info(f"Start training round {self.global_round - self.round + 1}")
                             self.notify_clients(special=self.special)
                         else:
                             self.notify_clients(register=False, special=self.special)
@@ -381,9 +379,9 @@ class Server:
                                 model_part = nn.Sequential(*nn.ModuleList(full_model.children())[layers[0]:layers[1]])
 
                             state_dict = model_part.state_dict()
-                            src.Log.print_with_color("Model loaded successfully.", "green")
+                            self.logger.log_info("Model loaded successfully.")
                         else:
-                            src.Log.print_with_color(f"File {filepath} does not exist.", "yellow")
+                            self.logger.log_info(f"File {filepath} does not exist.")
 
                     src.Log.print_with_color(f"[>>>] Sent start training request to client {client_id}", "red")
                     if layer_id == 1:
