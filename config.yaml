@@ -19,11 +19,11 @@ server:
     save: False
   validation: False
   data-distribution:
+    non-iid: False
+    num-sample: 5000
     num-label: 10
-    num-data-range:
-      - 250
-      - 250
-    non-iid-rate: 1
+    dirichlet:
+      alpha: 1
     refresh-each-round: True
   random-seed: 1
   client-cluster:
@@ -40,7 +40,7 @@ rabbit:
   address: 127.0.0.1
   username: admin
   password: admin
-  virtual-host: \
+  virtual-host: /
 
 log_path: .
 debug_mode: True
@@ -50,3 +50,10 @@ learning:
   momentum: 0.5
   batch-size: 32
   control-count: 3
+  compute-loss:
+    mode: normal # normal /FedProx /ReBaFL
+    FedProx:
+      mu: 0.01
+    ReBaFL:
+      mu: 0.01
+      lambda_aug: 0.1
