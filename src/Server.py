@@ -13,6 +13,7 @@ import src.Validation
 from src.Cluster import clustering_algorithm
 from src.model import *
 
+
 class Server:
     def __init__(self, config):
         # RabbitMQ
@@ -64,7 +65,8 @@ class Server:
         log_path = config["log_path"]
 
         credentials = pika.PlainCredentials(username, password)
-        self.connection = pika.BlockingConnection(pika.ConnectionParameters(address, 5672, f'{virtual_host}', credentials))
+        self.connection = pika.BlockingConnection(
+            pika.ConnectionParameters(address, 5672, f'{virtual_host}', credentials))
         self.channel = self.connection.channel()
         self.channel.queue_declare(queue='rpc_queue')
 
@@ -99,7 +101,8 @@ class Server:
 
     def distribution(self):
         if self.non_iid:
-            label_distribution = np.random.dirichlet([self.data_distribution["dirichlet"]["alpha"]] * self.num_label, self.total_clients[0])
+            label_distribution = np.random.dirichlet([self.data_distribution["dirichlet"]["alpha"]] * self.num_label,
+                                                     self.total_clients[0])
             self.label_counts = (label_distribution * self.num_sample).astype(int)
         else:
             self.label_counts = np.full((self.total_clients[0], self.num_label), self.num_sample // self.num_label)
@@ -189,7 +192,7 @@ class Server:
                     self.current_local_training_round = [0 for _ in range(self.num_cluster)]
                     # Test
                     if self.save_parameters and self.validation and self.round_result:
-                        state_dict_full = self.concatenate_state_dict()
+                        state_dict_full = self.concatenate_and_avg_clusters()
                         if not src.Validation.test(self.model_name, self.data_name, state_dict_full, self.logger):
                             self.logger.log_warning("Training failed!")
                         else:
@@ -256,12 +259,13 @@ class Server:
                     elif layer_id == len(self.total_clients):
                         layers = [self.list_cut_layers[cluster][-1], -1]
                     else:
-                        layers = [self.list_cut_layers[cluster][layer_id - 2], self.list_cut_layers[cluster][layer_id - 1]]
+                        layers = [self.list_cut_layers[cluster][layer_id - 2],
+                                  self.list_cut_layers[cluster][layer_id - 1]]
                     src.Log.print_with_color(f"[>>>] Sent start training request to client {client_id}", "red")
                     if layer_id == 1:
                         response = {"action": "START",
                                     "message": "Server accept the connection!",
-                                    "parameters": self.local_avg_state_dict[cluster][layer_id - 1],
+                                    "parameters": copy.deepcopy(self.local_avg_state_dict[cluster][layer_id - 1]),
                                     "num_layers": len(self.total_clients),
                                     "layers": layers,
                                     "model_name": self.model_name,
@@ -278,7 +282,7 @@ class Server:
                     else:
                         response = {"action": "START",
                                     "message": "Server accept the connection!",
-                                    "parameters": self.local_avg_state_dict[cluster][layer_id - 1],
+                                    "parameters": copy.deepcopy(self.local_avg_state_dict[cluster][layer_id - 1]),
                                     "num_layers": len(self.total_clients),
                                     "layers": layers,
                                     "model_name": self.model_name,
@@ -314,7 +318,8 @@ class Server:
                     elif layer_id == len(self.total_clients):
                         layers = [self.list_cut_layers[clustering][-1], -1]
                     else:
-                        layers = [self.list_cut_layers[clustering][layer_id - 2], self.list_cut_layers[clustering][layer_id - 1]]
+                        layers = [self.list_cut_layers[clustering][layer_id - 2],
+                                  self.list_cut_layers[clustering][layer_id - 1]]
 
                     if self.load_parameters and register:
                         if os.path.exists(filepath):
@@ -330,13 +335,14 @@ class Server:
                                 elif layer_id == len(self.total_clients):
                                     model_part = nn.Sequential(*nn.ModuleList(full_model.children())[layers[0]:])
                                 else:
-                                    model_part = nn.Sequential(*nn.ModuleList(full_model.children())[layers[0]:layers[1]])
+                                    model_part = nn.Sequential(
+                                        *nn.ModuleList(full_model.children())[layers[0]:layers[1]])
 
                                 state_dict = model_part.state_dict()
                                 self.logger.log_info("Model loaded successfully.")
                             else:
                                 if layer_id == 1:
-                                    if layers == [0,0]:
+                                    if layers == [0, 0]:
                                         model = klass()
                                     else:
                                         model = klass(end_layer=layers[1])
@@ -357,7 +363,7 @@ class Server:
                     if layer_id == 1:
                         response = {"action": "START",
                                     "message": "Server accept the connection!",
-                                    "parameters": state_dict,
+                                    "parameters": copy.deepcopy(state_dict),
                                     "num_layers": len(self.total_clients),
                                     "layers": layers,
                                     "model_name": self.model_name,
@@ -374,7 +380,7 @@ class Server:
                     else:
                         response = {"action": "START",
                                     "message": "Server accept the connection!",
-                                    "parameters": state_dict,
+                                    "parameters": copy.deepcopy(state_dict),
                                     "num_layers": len(self.total_clients),
                                     "layers": layers,
                                     "model_name": self.model_name,
@@ -403,13 +409,14 @@ class Server:
                     elif layer_id == len(self.total_clients):
                         layers = [self.list_cut_layers[cluster][-1], -1]
                     else:
-                        layers = [self.list_cut_layers[cluster][layer_id - 2], self.list_cut_layers[cluster][layer_id - 1]]
+                        layers = [self.list_cut_layers[cluster][layer_id - 2],
+                                  self.list_cut_layers[cluster][layer_id - 1]]
 
                     src.Log.print_with_color(f"[>>>] Sent start training request to client {client_id}", "red")
                     if layer_id == 1:
                         response = {"action": "START",
                                     "message": "Server accept the connection!",
-                                    "parameters": self.local_avg_state_dict[cluster][layer_id - 1],
+                                    "parameters": copy.deepcopy(self.local_avg_state_dict[cluster][layer_id - 1]),
                                     "num_layers": len(self.total_clients),
                                     "layers": layers,
                                     "model_name": self.model_name,
@@ -433,9 +440,15 @@ class Server:
         if self.mode_cluster is True:
             self.logger.log_debug(f"mode_partition is {self.mode_partition}")
             if self.mode_partition is True:
-                list_cluster, infor_cluster, num_cluster, list_cut_layers = clustering_algorithm(list_performance, self.total_clients[1], self.client_cluster_config, None)
+                list_cluster, infor_cluster, num_cluster, list_cut_layers = clustering_algorithm(list_performance,
+                                                                                                 self.total_clients[1],
+                                                                                                 self.client_cluster_config,
+                                                                                                 None)
             else:
-                list_cluster, infor_cluster, num_cluster, list_cut_layers = clustering_algorithm(list_performance, self.total_clients[1], self.client_cluster_config, self.partition)
+                list_cluster, infor_cluster, num_cluster, list_cut_layers = clustering_algorithm(list_performance,
+                                                                                                 self.total_clients[1],
+                                                                                                 self.client_cluster_config,
+                                                                                                 self.partition)
 
             self.infor_cluster = infor_cluster
             self.num_cluster = num_cluster
@@ -472,62 +485,43 @@ class Server:
             body=message
         )
 
-    def avg_all_parameters(self, cluster=None):
-        size = self.local_client_sizes[cluster]
-        parameters = self.local_model_parameters[cluster]
-        for layer, state_dicts in enumerate(parameters):
-            local_layer_client_size = size[layer]
-            num_models = len(state_dicts)
-            if num_models == 0:
-                return
+    def avg_all_parameters(self, cluster: int):
+        layer_sizes = self.local_client_sizes[cluster]
+        layer_params = self.local_model_parameters[cluster]
+        self.local_avg_state_dict = [[] for _ in range(self.num_cluster)]
 
-            denominator = sum(local_layer_client_size)
-            if denominator == 0:
-                print(f"Warning: denominator is zero at layer {layer}, skipping...")
+        for layer_idx, state_dicts in enumerate(layer_params):
+            weights = layer_sizes[layer_idx]
+            if not state_dicts or not weights:
+                self.local_avg_state_dict[cluster].append({})
+                continue
+            avg_sd = src.Utils.fedavg_state_dicts(state_dicts, weights=weights)
+            self.local_avg_state_dict[cluster].append(avg_sd)
+
+    def concatenate_and_avg_clusters(self):
+        cluster_state_dicts = []
+
+        for c in range(self.num_cluster):
+            avg_layers = self.local_avg_state_dict[c] or []
+            if not avg_layers:
+                print(f"Warning: cluster {c} has no averaged layers, skipping.")
                 continue
 
-            self.local_avg_state_dict[cluster][layer] = state_dicts[0]
-
-            for key in state_dicts[0].keys():
-                for i in range(num_models):
-                    if torch.isnan(state_dicts[i][key]).any():
-                        print(f"Warning: NaN detected in {key} at model {i}, replacing with zero.")
-                        state_dicts[i][key] = torch.nan_to_num(state_dicts[i][key])
-
-                if state_dicts[0][key].dtype != torch.long:
-                    self.local_avg_state_dict[cluster][layer][key] = sum(
-                        state_dicts[i][key].float() * local_layer_client_size[i]
-                        for i in range(num_models)
-                    ) / denominator
-                else:
-                    self.local_avg_state_dict[cluster][layer][key] = sum(
-                        state_dicts[i][key] * local_layer_client_size[i]
-                        for i in range(num_models)
-                    ) // denominator
-
-    def concatenate_state_dict(self):
-        state_dict_cluster = {}
-        list_state_dict_cluster = [state_dict_cluster for _ in range(self.num_cluster)]
-        for cluster in range(self.num_cluster):
-            if self.list_cut_layers[cluster][0] != 0:
-                for i, state_dicts in enumerate(self.local_avg_state_dict[cluster]):
-                    if self.model_name != 'ViT':
-                        if i > 0:
-                            state_dicts = src.Utils.change_state_dict(state_dicts, self.list_cut_layers[cluster][i - 1])
-                    list_state_dict_cluster[cluster].update(state_dicts)
+            full_dict = {}
+            if self.list_cut_layers[c][0] != 0:
+                for idx, layer_dict in enumerate(avg_layers):
+                    sd = layer_dict
+                    if self.model_name != 'ViT' and idx > 0:
+                        sd = src.Utils.change_state_dict(layer_dict, self.list_cut_layers[c][idx - 1])
+                    full_dict.update(copy.deepcopy(sd))
             else:
-                list_state_dict_cluster[cluster].update(self.local_avg_state_dict[cluster][0])
+                full_dict.update(copy.deepcopy(avg_layers[0]))
 
-        # Avg all cluster
-        state_dict_full = list_state_dict_cluster[0]
-        for key in list_state_dict_cluster[0].keys():
-            if list_state_dict_cluster[0][key].dtype != torch.long:
-                state_dict_full[key] = sum(
-                    list_state_dict_cluster[i][key]
-                    for i in range(self.num_cluster)) / self.num_cluster
-            else:
-                state_dict_full[key] = sum(
-                    list_state_dict_cluster[i][key]
-                    for i in range(self.num_cluster)) // self.num_cluster
+            cluster_state_dicts.append(full_dict)
 
-        return state_dict_full
+        if not cluster_state_dicts:
+            raise RuntimeError("There is no cluster to merge and average.")
+
+        global_state = src.Utils.fedavg_state_dicts(cluster_state_dicts)
+
+        return global_state

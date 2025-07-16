@@ -3,17 +3,14 @@ import pickle
 import pika
 import random
 import copy
-import torch
 import torchvision
 import torchvision.transforms as transforms
 
-from torch import nn
 from collections import defaultdict
 from tqdm import tqdm
 
 import src.Log
 import src.Model
-from src.Model import ViT
 from src.model import *
 
 
@@ -159,7 +156,7 @@ class RpcClient:
                 result, size = self.train_func(self.model, self.global_model, self.label_count, lr, momentum, clip_grad_norm, compute_loss, num_layers, control_count, None, self.cluster, special)
 
             # Stop training, then send parameters to server
-            model_state_dict = self.model.state_dict()
+            model_state_dict = copy.deepcopy(self.model.state_dict())
             if self.device != "cpu":
                 for key in model_state_dict:
                     model_state_dict[key] = model_state_dict[key].to('cpu')

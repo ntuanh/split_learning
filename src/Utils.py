@@ -1,6 +1,8 @@
 import numpy as np
 import random
 import pika
+import torch
+
 from requests.auth import HTTPBasicAuth
 import requests
 
@@ -62,3 +64,49 @@ def num_client_in_cluster(client_cluster_label):
         count_list[num] += 1
     count_list = [[x] for x in count_list]
     return count_list
+
+
+def fedavg_state_dicts(state_dicts: list[dict], weights: list[float]=None) -> dict:
+    """
+    Trung bình (FedAvg) một list các state_dict.
+    - state_dicts: list các dict {param_name: tensor}
+    - weights: list trọng số tương ứng (mặc định None nghĩa là mỗi model weight=1)
+    Trả về một dict {param_name: tensor_avg}
+    """
+    num = len(state_dicts)
+    if num == 0:
+        raise ValueError("fedavg_state_dicts: không có state_dict nào để trung bình.")
+
+    if weights is None:
+        weights = [1.0] * num
+    total_w = sum(weights)
+
+    # Tập hợp tất cả key
+    all_keys = set().union(*(sd.keys() for sd in state_dicts))
+    avg_dict = {}
+
+    for key in all_keys:
+        # gom tensor + weight, xử lý NaN
+        acc = None
+        for sd, w in zip(state_dicts, weights):
+            if key not in sd:
+                continue
+            t = sd[key].float()
+            if torch.isnan(t).any():
+                t = torch.nan_to_num(t)  # zero-fill
+            t = t * w
+            acc = t if acc is None else acc + t
+
+        # chia trung bình
+        avg = acc / total_w
+
+        # cast về dtype gốc
+        orig = next(sd[key] for sd in state_dicts if key in sd)
+        if orig.dtype in (torch.int8, torch.int16, torch.int32, torch.int64, torch.bool):
+            avg = avg.round().to(orig.dtype)
+        else:
+            avg = avg.to(orig.dtype)
+
+        avg_dict[key] = avg
+
+    return avg_dict
