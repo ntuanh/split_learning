@@ -177,6 +177,56 @@ On the server, the `*.pth` files are saved in the main execution directory of `s
 If the `*.pth` file exists, the server will read the file and send the parameters to the clients. Otherwise, if the file does not exist, a new DNN model will be created with fresh parameters. Therefore, if you want to reset the training process, you should delete the `*.pth` files.
 
 ---
+## Setup Guide: RabbitMQ, Docker Compose, and Port Fix
+
+```bash
+## a) RabbitMQ Setup
+
+# 1. Check if RabbitMQ is installed
+rabbitmqctl status
+
+# If you see:
+# bash: rabbitmqctl: command not found
+# → RabbitMQ is not installed
+
+# 2. Install RabbitMQ
+sudo apt update
+sudo apt install rabbitmq-server -y
+
+# 3. Start and enable RabbitMQ
+sudo systemctl start rabbitmq-server
+sudo systemctl enable rabbitmq-server
+
+
+## b) Docker & Docker Compose
+
+# 1. Install Docker Compose
+sudo apt update
+sudo apt install docker-compose -y
+
+# 2. Add current user to Docker group (to avoid using sudo)
+sudo usermod -aG docker $USER
+
+# 3. Reboot or restart your shell (to apply group change)
+reboot
+
+# 4. Test Docker
+docker ps
+# If no error → Docker is working fine
+
+
+## c) Fix Port Conflict on 5672
+
+# 1. Check which process is using port 5672 (RabbitMQ default)
+sudo lsof -i :5672
+
+# 2. Kill the process (replace <PID> with the actual number)
+sudo kill -9 <PID>
+
+# 3. Retry Docker Compose (if you're using it to run RabbitMQ)
+docker-compose up -d
+```
+---
 
 Version 3.0.0
 
