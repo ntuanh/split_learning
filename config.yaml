@@ -39,8 +39,8 @@ server:
 
 rabbit:
   address: 127.0.0.1
-  username: admin
-  password: admin
+  username: user
+  password: password
   virtual-host: /
 
 log_path: .
